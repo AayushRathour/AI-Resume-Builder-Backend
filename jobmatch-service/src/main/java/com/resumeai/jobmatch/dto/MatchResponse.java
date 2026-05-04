@@ -20,7 +20,9 @@ public class MatchResponse {
     private String jobTitle;
     private String company;
     private String location;
-    private JobSource source;
+    private String jobDescription;
+    private String applyUrl;
+    private String source;
     private Double matchScore;
     private String missingSkills;
     private String recommendation;

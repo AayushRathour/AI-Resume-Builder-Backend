@@ -8,5 +8,7 @@ public enum RequestType {
     ATS,
     SKILLS,
     TAILOR,
-    TRANSLATE
+    TRANSLATE,
+    RESUME_EXTRACT,
+    MISSING_SKILLS
 }

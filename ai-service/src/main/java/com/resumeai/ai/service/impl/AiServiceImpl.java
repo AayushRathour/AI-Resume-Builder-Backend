@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -21,7 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.resumeai.ai.client.GeminiClient;
 import com.resumeai.ai.dto.AIHistoryResponse;
 import com.resumeai.ai.dto.AIResponse;
 import com.resumeai.ai.dto.ATSRequest;
@@ -29,13 +29,16 @@ import com.resumeai.ai.dto.ATSResponse;
 import com.resumeai.ai.dto.BulletRequest;
 import com.resumeai.ai.dto.CoverLetterRequest;
 import com.resumeai.ai.dto.ImproveRequest;
+import com.resumeai.ai.dto.MissingSkillsRequest;
+import com.resumeai.ai.dto.MissingSkillsResponse;
 import com.resumeai.ai.dto.NotificationEvent;
 import com.resumeai.ai.dto.QuotaResponse;
+import com.resumeai.ai.dto.ResumeExtractRequest;
+import com.resumeai.ai.dto.ResumeExtractResponse;
 import com.resumeai.ai.dto.SkillRequest;
 import com.resumeai.ai.dto.SummaryRequest;
 import com.resumeai.ai.dto.TailorRequest;
 import com.resumeai.ai.dto.TranslateRequest;
-import com.resumeai.ai.entity.AiModel;
 import com.resumeai.ai.entity.AiRequest;
 import com.resumeai.ai.entity.RequestStatus;
 import com.resumeai.ai.entity.RequestType;
@@ -54,7 +57,7 @@ public class AiServiceImpl implements AiService {
     private static final Logger log = LoggerFactory.getLogger(AiServiceImpl.class);
 
     private final AiRequestRepository repository;
-    private final GeminiClient geminiClient;
+    private static final String NVIDIA_MODEL = "z-ai/glm-4.7";
     private final ObjectMapper objectMapper;
     private final RabbitTemplate rabbitTemplate;
 
@@ -116,25 +119,32 @@ public class AiServiceImpl implements AiService {
         AiRequest record = saveQueued(userId, resumeId, RequestType.ATS, prompt);
 
         try {
-            String rawText = callAi(prompt, record);
+            String rawText = extractNvidiaContent(callAi(prompt, record));
             ATSResponse atsResponse = parseAtsResponse(rawText, req.getResumeContent(), req.getJobDescription());
             markCompleted(record, rawText, estimateTokens(rawText));
             atsResponse.setRequestId(record.getRequestId());
             return atsResponse;
         } catch (QuotaExceededException ex) {
-            log.warn("Gemini API quota exceeded. Falling back to hybrid ATS scoring.");
+            log.warn("AI quota exceeded. Falling back to hybrid ATS scoring.");
             AtsHybridResult hybridResult = computeHybridAts(req.getResumeContent(), req.getJobDescription());
             ATSResponse atsResponse = ATSResponse.builder()
                     .score(hybridResult.keywordScore)
                     .missingKeywords(new ArrayList<>(hybridResult.missingKeywords))
-                    .recommendations("AI suggestions are currently unavailable due to high traffic. Your score is based on traditional keyword matching.")
+                    .recommendations("AI TEMPORARILY UNAVAILABLE")
                     .requestId(record.getRequestId())
                     .build();
-            markCompleted(record, "Fallback to hybrid scoring.", 0);
+            markCompleted(record, "AI TEMPORARILY UNAVAILABLE", 0);
             return atsResponse;
         } catch (Exception ex) {
             markFailed(record);
-            throw ex;
+            AtsHybridResult hybridResult = computeHybridAts(req.getResumeContent(), req.getJobDescription());
+            ATSResponse atsResponse = ATSResponse.builder()
+                    .score(hybridResult.keywordScore)
+                    .missingKeywords(new ArrayList<>(hybridResult.missingKeywords))
+                    .recommendations("AI TEMPORARILY UNAVAILABLE")
+                    .requestId(record.getRequestId())
+                    .build();
+            return atsResponse;
         }
     }
 
@@ -163,6 +173,129 @@ public class AiServiceImpl implements AiService {
             req.getResumeContent(), req.getTargetLanguage()
         );
         return executeAndSave(userId, resumeId, RequestType.TRANSLATE, prompt);
+    }
+
+    @Override
+    public ResumeExtractResponse extractResumeData(ResumeExtractRequest request) {
+        if (request == null) {
+            throw new RuntimeException("Request is NULL");
+        }
+
+        String resumeText = request.getResumeText() == null ? "" : request.getResumeText();
+        if (resumeText.trim().isEmpty()) {
+            throw new RuntimeException("PDF TEXT EMPTY");
+        }
+
+        System.out.println("EXTRACTED TEXT LENGTH: " + resumeText.length());
+
+        String prompt = """
+You are an AI resume parser.
+
+Extract structured data from the resume.
+
+Return ONLY valid JSON in this format:
+
+{
+"skills": [],
+"roles": [],
+"experience": "",
+"keywords": []
+}
+
+Rules:
+
+* Extract ALL technical skills (ML, AI, backend, tools)
+* Extract ALL possible job roles
+* Estimate experience from projects + work
+* Do NOT return explanation
+* Do NOT add text outside JSON
+
+Resume:
+""" + resumeText;
+
+        AiRequest record;
+        boolean persisted = true;
+        try {
+            record = saveQueued(request.getUserId(), request.getResumeId(), RequestType.RESUME_EXTRACT, prompt);
+        } catch (Exception saveException) {
+            persisted = false;
+            log.warn("Could not persist resume-extract request: {}", saveException.getMessage());
+            record = AiRequest.builder()
+                    .requestId(UUID.randomUUID().toString())
+                    .userId(request.getUserId())
+                    .resumeId(request.getResumeId())
+                    .requestType(RequestType.RESUME_EXTRACT)
+                    .inputPrompt(prompt)
+                    .status(RequestStatus.QUEUED)
+                    .model(NVIDIA_MODEL)
+                    .build();
+        }
+
+        try {
+            String rawText = extractNvidiaContent(callAi(prompt, record));
+            String cleaned = cleanJsonString(rawText);
+            ResumeExtractResponse response = objectMapper.readValue(cleaned, ResumeExtractResponse.class);
+            if (persisted) {
+                markCompleted(record, rawText, estimateTokens(rawText));
+            }
+            return normalizeResumeExtract(response);
+        } catch (Exception ex) {
+            if (persisted) {
+                markFailed(record);
+            }
+            return ResumeExtractResponse.builder()
+                    .skills(List.of())
+                    .roles(List.of())
+                    .keywords(List.of())
+                    .experience("AI TEMPORARILY UNAVAILABLE")
+                    .build();
+        }
+    }
+
+    @Override
+    public MissingSkillsResponse analyzeMissingSkills(MissingSkillsRequest request) {
+        String resumeText = request.getResumeText() == null ? "" : request.getResumeText();
+        String jobDescription = request.getJobDescription() == null ? "" : request.getJobDescription();
+        String prompt = """
+You are a resume analyzer comparing candidate skills with job requirements.
+
+Compare the candidate's resume with the job description.
+
+Identify missing skills and suggest recommendations to improve the match.
+
+Return ONLY a JSON object with this exact structure:
+
+{
+"missingSkills": "Comma separated list of missing skills",
+"recommendations": "Brief actionable advice"
+}
+
+Rules:
+* Extract ONLY missing technical skills
+* Be specific and practical
+* Do NOT return explanation
+* Do NOT add text outside JSON
+
+Resume:
+""" + resumeText + """
+
+Job Description:
+""" + jobDescription;
+
+        AiRequest record = saveQueued(request.getUserId(), request.getResumeId(), RequestType.MISSING_SKILLS, prompt);
+        try {
+            String rawText = extractNvidiaContent(callAi(prompt, record));
+            String cleaned = cleanJsonString(rawText);
+            MissingSkillsResponse response = objectMapper.readValue(cleaned, MissingSkillsResponse.class);
+            markCompleted(record, rawText, estimateTokens(rawText));
+            return response;
+        } catch (Exception ex) {
+            markFailed(record);
+            return MissingSkillsResponse.builder()
+                    .missingSkills("")
+                    .recommendations("AI TEMPORARILY UNAVAILABLE")
+                    .build();
+        }
     }
 
     @Override
@@ -200,28 +333,94 @@ public class AiServiceImpl implements AiService {
     private AIResponse executeAndSave(Long userId, Long resumeId, RequestType type, String prompt) {
         AiRequest record = saveQueued(userId, resumeId, type, prompt);
         try {
-            String text = callAi(prompt, record);
+            String text = extractNvidiaContent(callAi(prompt, record));
             int tokens = estimateTokens(text);
             markCompleted(record, text, tokens);
             return AIResponse.builder()
                     .text(text)
-                    .model(record.getModel().name())
+                    .model(record.getModel())
                     .tokensUsed(tokens)
                     .requestId(record.getRequestId())
                     .build();
         } catch (Exception ex) {
             markFailed(record);
-            throw ex;
+            return AIResponse.builder()
+                    .text("AI TEMPORARILY UNAVAILABLE")
+                    .model(NVIDIA_MODEL)
+                    .tokensUsed(0)
+                    .requestId(record.getRequestId())
+                    .build();
         }
     }
 
     /**
-     * Gemini is the only supported provider.
+     * NVIDIA NIM provider (glm-4.7).
      */
     private String callAi(String prompt, AiRequest record) {
-        String response = geminiClient.generate(prompt);
-        record.setModel(AiModel.GEMINI);
+        String response = callNvidiaAI(prompt);
+        record.setModel(NVIDIA_MODEL);
         return response;
+    }
+
+    private String extractNvidiaContent(String raw) {
+        if (raw == null || !raw.contains("choices")) {
+            throw new RuntimeException("Invalid AI response");
+        }
+        try {
+            JsonNode root = objectMapper.readTree(raw);
+            JsonNode content = root.path("choices").path(0).path("message").path("content");
+            if (!content.isMissingNode() && !content.asText("").isBlank()) {
+                return content.asText();
+            }
+        } catch (Exception ignored) {
+            // Fall through to raw output
+        }
+        return raw;
+    }
+
+    public String callNvidiaAI(String prompt) {
+        try {
+            String url = "https://integrate.api.nvidia.com/v1/chat/completions";
+            String apiKey = System.getenv("NVIDIA_API_KEY");
+            if (apiKey == null || apiKey.isBlank()) {
+                throw new AiServiceException("NVIDIA_API_KEY is not configured");
+            }
+
+            System.out.println("NVIDIA_API_KEY=" + (apiKey.length() > 6 ? apiKey.substring(0, 6) + "***" : "***"));
+
+                org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+
+                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                headers.setBearerAuth(apiKey);
+                headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+                Map<String, Object> body = new HashMap<>();
+                body.put("model", "z-ai/glm-4.7");
+                List<Map<String, String>> messages = new ArrayList<>();
+                Map<String, String> msg = new HashMap<>();
+                msg.put("role", "user");
+                msg.put("content", prompt);
+                messages.add(msg);
+                body.put("messages", messages);
+                body.put("temperature", 0.3);
+                body.put("max_tokens", 2000);
+
+                org.springframework.http.HttpEntity<Map<String, Object>> request =
+                    new org.springframework.http.HttpEntity<>(body, headers);
+
+                org.springframework.http.ResponseEntity<String> response =
+                    restTemplate.postForEntity(url, request, String.class);
+
+                System.out.println("NVIDIA RESPONSE: " + response.getBody());
+
+            if (response.getBody() == null || response.getBody().isBlank()) {
+                throw new AiServiceException("NVIDIA AI returned empty response");
+            }
+
+            return response.getBody();
+        } catch (Exception e) {
+            throw new RuntimeException("NVIDIA AI FAILED: " + e.getMessage(), e);
+        }
     }
 
     @Transactional
@@ -288,8 +487,8 @@ public class AiServiceImpl implements AiService {
     }
 
     private ATSResponse parseAtsResponse(String rawText, String resumeContent, String jobDescription) {
-        // Strip markdown code fences if Gemini wraps response in ```json ... ```
-        String cleaned = rawText.replaceAll("(?s)```json\\s*", "").replaceAll("```", "").trim();
+        // Strip markdown code fences if the AI wraps response in ```json ... ```
+        String cleaned = cleanJsonString(rawText);
         AtsHybridResult hybridResult = computeHybridAts(resumeContent, jobDescription);
         try {
             JsonNode node = objectMapper.readTree(cleaned);
@@ -397,6 +596,51 @@ public class AiServiceImpl implements AiService {
     }
 
     private record AtsHybridResult(int keywordScore, List<String> missingKeywords) {
+    }
+
+    private String cleanJsonString(String jsonText) {
+        if (jsonText == null) {
+            return "";
+        }
+        String cleaned = jsonText.trim();
+        if (cleaned.startsWith("```json")) {
+            cleaned = cleaned.substring(7);
+        } else if (cleaned.startsWith("```")) {
+            cleaned = cleaned.substring(3);
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 3);
+        }
+        return cleaned.trim();
+    }
+
+    private ResumeExtractResponse normalizeResumeExtract(ResumeExtractResponse response) {
+        if (response == null) {
+            return ResumeExtractResponse.builder()
+                    .skills(List.of())
+                    .roles(List.of())
+                    .keywords(List.of())
+                    .experience("")
+                    .build();
+        }
+        response.setSkills(normalizeList(response.getSkills()));
+        response.setRoles(normalizeList(response.getRoles()));
+        response.setKeywords(normalizeList(response.getKeywords()));
+        if (response.getExperience() != null) {
+            response.setExperience(response.getExperience().trim());
+        }
+        return response;
+    }
+
+    private List<String> normalizeList(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(v -> v != null && !v.isBlank())
+                .map(v -> v.trim().toLowerCase(Locale.ROOT))
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     private int estimateTokens(String text) {

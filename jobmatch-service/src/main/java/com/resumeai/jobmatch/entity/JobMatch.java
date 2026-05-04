@@ -25,8 +25,21 @@ public class JobMatch {
     @Column(nullable = false)
     private Long resumeId;
 
-    @Column(nullable = false)
+    @Column(name = "job_id", nullable = false)
     private Long jobId;
+
+    @Column(nullable = false)
+    private String jobTitle;
+
+    private String company;
+
+    private String location;
+
+    @Column(length = 1024)
+    private String applyUrl;
+
+    @Column(columnDefinition = "TEXT")
+    private String jobDescription;
 
     @Column(nullable = false)
     private Double matchScore;
@@ -35,7 +48,10 @@ public class JobMatch {
     private String missingSkills;
 
     @Column(columnDefinition = "TEXT")
-    private String recommendation;
+    private String recommendations;
+
+    @Column(length = 100)
+    private String source;
 
     @Column(nullable = false)
     @Builder.Default

@@ -19,4 +19,13 @@ public class GlobalExceptionHandler {
         errorResponse.put("message", "File size exceeds the 5MB limit. Please upload a smaller file.");
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(errorResponse);
     }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handle(Exception e) {
+        e.printStackTrace();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("status", "failed");
+        payload.put("message", e.getMessage() == null ? "Unexpected error" : e.getMessage());
+        return ResponseEntity.ok(payload);
+    }
 }

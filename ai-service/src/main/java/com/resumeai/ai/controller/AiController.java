@@ -3,6 +3,7 @@ package com.resumeai.ai.controller;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.resumeai.ai.dto.AIHistoryResponse;
@@ -19,8 +21,13 @@ import com.resumeai.ai.dto.ATSResponse;
 import com.resumeai.ai.dto.BulletRequest;
 import com.resumeai.ai.dto.CoverLetterRequest;
 import com.resumeai.ai.dto.ImproveRequest;
+import com.resumeai.ai.dto.MissingSkillsRequest;
+import com.resumeai.ai.dto.MissingSkillsResponse;
 import com.resumeai.ai.dto.QuotaResponse;
+import com.resumeai.ai.dto.ResumeExtractRequest;
+import com.resumeai.ai.dto.ResumeExtractResponse;
 import com.resumeai.ai.dto.SkillRequest;
+import com.resumeai.ai.dto.StatusResponse;
 import com.resumeai.ai.dto.SummaryRequest;
 import com.resumeai.ai.dto.TailorRequest;
 import com.resumeai.ai.dto.TranslateRequest;
@@ -33,7 +40,7 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import java.io.InputStream;
-import com.resumeai.ai.client.GeminiClient;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/ai")
@@ -41,80 +48,75 @@ import com.resumeai.ai.client.GeminiClient;
 public class AiController {
 
     private final AiService aiService;
-    private final GeminiClient geminiClient;
 
         @PostMapping({"/summary", "/generate-summary"})
-    public ResponseEntity<AIResponse> generateSummary(
+    public ResponseEntity<StatusResponse<AIResponse>> generateSummary(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody SummaryRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.generateSummary(userId, resumeId, request));
+                .body(ok(aiService.generateSummary(userId, resumeId, request)));
     }
 
     @PostMapping("/bullets")
-    public ResponseEntity<AIResponse> generateBullets(
+    public ResponseEntity<StatusResponse<AIResponse>> generateBullets(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody BulletRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.generateBulletPoints(userId, resumeId, request));
+                .body(ok(aiService.generateBulletPoints(userId, resumeId, request)));
     }
 
     @PostMapping("/cover-letter")
-    public ResponseEntity<AIResponse> generateCoverLetter(
+    public ResponseEntity<StatusResponse<AIResponse>> generateCoverLetter(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody CoverLetterRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.generateCoverLetter(userId, resumeId, request));
+                .body(ok(aiService.generateCoverLetter(userId, resumeId, request)));
     }
 
         @PostMapping({"/improve", "/improve-section"})
-    public ResponseEntity<AIResponse> improveSection(
+    public ResponseEntity<StatusResponse<AIResponse>> improveSection(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody ImproveRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.improveSection(userId, resumeId, request));
+                .body(ok(aiService.improveSection(userId, resumeId, request)));
     }
 
         @PostMapping({"/ats", "/check-ats"})
-    public ResponseEntity<ATSResponse> checkAts(
+    public ResponseEntity<StatusResponse<ATSResponse>> checkAts(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody ATSRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.checkAtsCompatibility(userId, resumeId, request));
+                .body(ok(aiService.checkAtsCompatibility(userId, resumeId, request)));
     }
 
     @PostMapping("/ats-upload")
-    public ResponseEntity<?> atsUpload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<StatusResponse<?>> atsUpload(@RequestParam("file") MultipartFile file) {
         // Step 1: Extract text from the uploaded file
         String text;
         try {
             text = extractText(file);
             if (text == null || text.trim().isEmpty()) {
-                return ResponseEntity.badRequest().body(java.util.Map.of("message", "Could not extract text from file"));
+                return ResponseEntity.badRequest().body(fail("Could not extract text from file"));
             }
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(java.util.Map.of("message", "Unsupported or corrupted file: " + e.getMessage()));
+            return ResponseEntity.badRequest().body(fail("Unsupported or corrupted file: " + e.getMessage()));
         }
 
-        // Step 2: Try Gemini AI analysis
         try {
-            String prompt = "Analyze this resume for ATS (Applicant Tracking System) compatibility. " +
-                            "Provide your response in this exact format:\n" +
-                            "ATS Score: [number]/100\n\n" +
-                            "Missing Keywords: [list]\n\n" +
-                            "Suggestions:\n[numbered list]\n\n" +
-                            "Resume text:\n" + text;
-            String response = geminiClient.generate(prompt);
-            return ResponseEntity.ok(java.util.Map.of("result", response));
+            ATSRequest request = ATSRequest.builder()
+                    .resumeContent(text)
+                    .jobDescription("")
+                    .build();
+            ATSResponse ats = aiService.checkAtsCompatibility(0L, null, request);
+            return ResponseEntity.ok(ok(ats));
         } catch (Exception e) {
-            // Step 3: Gemini failed — use local fallback ATS analysis (NEVER return 500)
             String fallbackResult = computeLocalAtsAnalysis(text);
-            return ResponseEntity.ok(java.util.Map.of("result", fallbackResult));
+            return ResponseEntity.ok(ok(java.util.Map.of("result", fallbackResult)));
         }
     }
 
@@ -208,10 +210,15 @@ public class AiController {
 
         try (InputStream is = file.getInputStream()) {
             if (filename.endsWith(".pdf")) {
-                try (PDDocument document = PDDocument.load(is)) {
-                    PDFTextStripper stripper = new PDFTextStripper();
-                    return stripper.getText(document);
+                PDDocument document = PDDocument.load(is);
+                PDFTextStripper pdfStripper = new PDFTextStripper();
+                String text = pdfStripper.getText(document);
+                document.close();
+                System.out.println("EXTRACTED TEXT LENGTH: " + (text == null ? 0 : text.length()));
+                if (text == null || text.trim().isEmpty()) {
+                    throw new RuntimeException("PDF TEXT EMPTY");
                 }
+                return text;
             } else if (filename.endsWith(".docx")) {
                 try (XWPFDocument doc = new XWPFDocument(is);
                      XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
@@ -225,39 +232,109 @@ public class AiController {
     }
 
     @PostMapping("/skills")
-    public ResponseEntity<AIResponse> suggestSkills(
+    public ResponseEntity<StatusResponse<AIResponse>> suggestSkills(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody SkillRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.suggestSkills(userId, resumeId, request));
+                .body(ok(aiService.suggestSkills(userId, resumeId, request)));
     }
 
     @PostMapping("/tailor")
-    public ResponseEntity<AIResponse> tailorResume(
+    public ResponseEntity<StatusResponse<AIResponse>> tailorResume(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody TailorRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.tailorResumeForJob(userId, resumeId, request));
+                .body(ok(aiService.tailorResumeForJob(userId, resumeId, request)));
     }
 
     @PostMapping("/translate")
-    public ResponseEntity<AIResponse> translateResume(
+    public ResponseEntity<StatusResponse<AIResponse>> translateResume(
             @RequestParam Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestBody TranslateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiService.translateResume(userId, resumeId, request));
+                .body(ok(aiService.translateResume(userId, resumeId, request)));
+    }
+
+    @PostMapping("/resume-extract")
+    public ResponseEntity<Map<String, Object>> extractResume(@RequestBody ResumeExtractRequest request) {
+        System.out.println("API HIT: /resume-extract");
+        if (request == null) {
+            throw new RuntimeException("Request is NULL");
+        }
+        if (request.getResumeText() == null || request.getResumeText().trim().isEmpty()) {
+            throw new RuntimeException("PDF TEXT EMPTY");
+        }
+        System.out.println("EXTRACTED TEXT LENGTH: " + request.getResumeText().length());
+        return ResponseEntity.ok(Map.of(
+                "status", "success",
+                "data", aiService.extractResumeData(request)
+        ));
+    }
+
+    @PostMapping(value = "/resume-extract", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> extractResumeFromFile(
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long resumeId,
+            @RequestPart(required = false, value = "file") MultipartFile file) {
+        System.out.println("API HIT: /resume-extract");
+
+        if (file == null) {
+            throw new RuntimeException("File is NULL");
+        }
+
+        String text;
+        try {
+            text = extractText(file);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to extract text from uploaded file: " + e.getMessage(), e);
+        }
+
+        System.out.println("EXTRACTED TEXT LENGTH: " + (text == null ? 0 : text.length()));
+        if (text == null || text.trim().isEmpty()) {
+            throw new RuntimeException("PDF TEXT EMPTY");
+        }
+
+        ResumeExtractRequest request = ResumeExtractRequest.builder()
+                .userId(userId)
+                .resumeId(resumeId)
+                .resumeText(text)
+                .build();
+
+        return ResponseEntity.ok(Map.of(
+                "status", "success",
+                "data", aiService.extractResumeData(request)
+        ));
+    }
+
+    @PostMapping("/missing-skills")
+    public ResponseEntity<StatusResponse<MissingSkillsResponse>> analyzeMissingSkills(@RequestBody MissingSkillsRequest request) {
+        return ResponseEntity.ok(ok(aiService.analyzeMissingSkills(request)));
     }
 
     @GetMapping("/history/{userId}")
-    public ResponseEntity<List<AIHistoryResponse>> getHistory(@PathVariable Long userId) {
-        return ResponseEntity.ok(aiService.getAiHistory(userId));
+    public ResponseEntity<StatusResponse<List<AIHistoryResponse>>> getHistory(@PathVariable Long userId) {
+        return ResponseEntity.ok(ok(aiService.getAiHistory(userId)));
     }
 
     @GetMapping("/quota/{userId}")
-    public ResponseEntity<QuotaResponse> getQuota(@PathVariable Long userId) {
-        return ResponseEntity.ok(aiService.getRemainingQuota(userId));
+    public ResponseEntity<StatusResponse<QuotaResponse>> getQuota(@PathVariable Long userId) {
+        return ResponseEntity.ok(ok(aiService.getRemainingQuota(userId)));
+    }
+
+    private <T> StatusResponse<T> ok(T data) {
+        return StatusResponse.<T>builder()
+                .status("success")
+                .data(data)
+                .build();
+    }
+
+    private StatusResponse<?> fail(String message) {
+        return StatusResponse.builder()
+                .status("failed")
+                .message(message)
+                .build();
     }
 }

@@ -35,7 +35,7 @@ public class AiRequest {
     private Long resumeId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 32)
     private RequestType requestType;
 
     @Column(columnDefinition = "TEXT")
@@ -44,13 +44,13 @@ public class AiRequest {
     @Column(columnDefinition = "LONGTEXT")
     private String aiResponse;
 
-    @Enumerated(EnumType.STRING)
-    private AiModel model;
+    @Column(length = 64)
+    private String model;
 
     private Integer tokensUsed;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 32)
     private RequestStatus status;
 
     private LocalDateTime createdAt;

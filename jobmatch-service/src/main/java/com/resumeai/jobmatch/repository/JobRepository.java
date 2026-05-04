@@ -10,4 +10,8 @@ import java.util.List;
 public interface JobRepository extends JpaRepository<Job, Long> {
 
     List<Job> findByTitleContainingIgnoreCase(String keyword);
+
+    void deleteBySource(com.resumeai.jobmatch.entity.JobSource source);
+
+    List<Job> findBySourceOrderByCreatedAtDesc(com.resumeai.jobmatch.entity.JobSource source);
 }

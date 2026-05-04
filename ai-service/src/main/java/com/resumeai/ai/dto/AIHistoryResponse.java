@@ -2,7 +2,6 @@ package com.resumeai.ai.dto;
 
 import java.time.LocalDateTime;
 
-import com.resumeai.ai.entity.AiModel;
 import com.resumeai.ai.entity.RequestStatus;
 import com.resumeai.ai.entity.RequestType;
 
@@ -24,7 +23,7 @@ public class AIHistoryResponse {
     private RequestType requestType;
     private String inputPrompt;
     private String aiResponse;
-    private AiModel model;
+    private String model;
     private RequestStatus status;
     private Integer tokensUsed;
     private LocalDateTime createdAt;

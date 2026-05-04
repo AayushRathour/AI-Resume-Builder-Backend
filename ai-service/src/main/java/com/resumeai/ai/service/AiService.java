@@ -9,7 +9,11 @@ import com.resumeai.ai.dto.ATSResponse;
 import com.resumeai.ai.dto.BulletRequest;
 import com.resumeai.ai.dto.CoverLetterRequest;
 import com.resumeai.ai.dto.ImproveRequest;
+import com.resumeai.ai.dto.MissingSkillsRequest;
+import com.resumeai.ai.dto.MissingSkillsResponse;
 import com.resumeai.ai.dto.QuotaResponse;
+import com.resumeai.ai.dto.ResumeExtractRequest;
+import com.resumeai.ai.dto.ResumeExtractResponse;
 import com.resumeai.ai.dto.SkillRequest;
 import com.resumeai.ai.dto.SummaryRequest;
 import com.resumeai.ai.dto.TailorRequest;
@@ -32,6 +36,10 @@ public interface AiService {
     AIResponse tailorResumeForJob(Long userId, Long resumeId, TailorRequest request);
 
     AIResponse translateResume(Long userId, Long resumeId, TranslateRequest request);
+
+    ResumeExtractResponse extractResumeData(ResumeExtractRequest request);
+
+    MissingSkillsResponse analyzeMissingSkills(MissingSkillsRequest request);
 
     List<AIHistoryResponse> getAiHistory(Long userId);
 

@@ -33,7 +33,7 @@ public class Job {
     private String requiredSkills;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 32)
     private JobSource source;
 
     @Column(nullable = false, updatable = false)

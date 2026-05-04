@@ -4,5 +4,7 @@ public enum JobSource {
     LINKEDIN,
     NAUKRI,
     INTERNAL,
-    MANUAL
+    MANUAL,
+    ADZUNA,
+    THEIRSTACK
 }
