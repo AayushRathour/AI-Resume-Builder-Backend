@@ -58,8 +58,20 @@ public class ExportServiceImpl implements ExportService {
     @Value("${export.output-dir:./exports}")
     private String outputDir;
 
+        private static final String DEFAULT_EMPTY_TEMPLATE = """
+                <div style=\"font-family:Arial,sans-serif;padding:40px;\">
+                    <h1>{{name}}</h1>
+                    <p>{{title}}</p>
+                    <p>{{summary}}</p>
+                    {{skills}}
+                    {{experience}}
+                    {{education}}
+                    {{projects}}
+                </div>
+                """;
+
     @Override
-    public ExportResponse exportResume(Long userId, Long resumeId, String requestedFormat) {
+    public ExportResponse exportResume(Long userId, Long resumeId, String requestedFormat, Long templateId) {
         String format = normalizeFormat(requestedFormat);
 
         ExportJobRecord job = exportJobRepository.save(ExportJobRecord.builder()
@@ -75,6 +87,12 @@ public class ExportServiceImpl implements ExportService {
                 return markFailed(job, "Resume not found");
             }
 
+            try {
+                log.info("PDF DATA: {}", OBJECT_MAPPER.writeValueAsString(resume));
+            } catch (JsonProcessingException ex) {
+                log.debug("PDF DATA serialization failed: {}", ex.getMessage());
+            }
+
             List<SectionDTO> sections = null;
             try {
                 sections = sectionClient.getSectionsByResumeId(resumeId, userId);
@@ -84,18 +102,25 @@ public class ExportServiceImpl implements ExportService {
             
             boolean hasSections = sections != null && !sections.isEmpty();
             boolean hasDynamicSections = resume.getSectionsJson() != null && !resume.getSectionsJson().trim().isEmpty();
-
-            if (!hasSections && !hasDynamicSections) {
-                return markFailed(job, "Add at least one section before export");
+            boolean hasEmbeddedFields = hasEmbeddedFields(resume);
+            if (!hasSections && !hasDynamicSections && !hasEmbeddedFields) {
+                log.info("Export requested with no sections or embedded fields; proceeding with empty PDF.");
             }
 
-            TemplateDTO template = resume.getTemplateId() != null
-                    ? templateClient.getTemplateById(resume.getTemplateId())
+                Long effectiveTemplateId = templateId != null ? templateId : resume.getTemplateId();
+                TemplateDTO template = effectiveTemplateId != null
+                    ? templateClient.getTemplateById(effectiveTemplateId)
                     : null;
+                debugTemplateHtml(effectiveTemplateId, template);
 
             String payload = "JSON".equals(format)
                     ? buildJsonPayload(resume, sections, template)
                     : buildHtmlPayload(resume, sections, template);
+
+            if (!"JSON".equals(format)) {
+                log.info("PDF HTML length: {}", payload.length());
+                log.debug("PDF HTML: {}", payload);
+            }
             String filePath = saveToFile(resumeId, format, payload);
 
             job.setStatus("COMPLETED");
@@ -210,106 +235,33 @@ public class ExportServiceImpl implements ExportService {
     private String buildHtmlPayload(ResumeDTO resume, List<SectionDTO> sections, TemplateDTO template) {
         // ── PRIMARY PATH: Use template htmlLayout + resume sectionsJson ──
         // This matches exactly what the builder live preview shows
-        if (template != null && template.getHtmlContent() != null && !template.getHtmlContent().isBlank()
-                && resume.getSectionsJson() != null && !resume.getSectionsJson().isBlank()) {
+        if (resume.getSectionsJson() != null && !resume.getSectionsJson().isBlank()) {
             try {
-                Map<String, String> data = OBJECT_MAPPER.readValue(resume.getSectionsJson(), Map.class);
-                String html = template.getHtmlContent();
-
-                // Replace all {{variable}} placeholders with actual user data
-                for (Map.Entry<String, String> entry : data.entrySet()) {
-                    String placeholder = "\\{\\{" + entry.getKey() + "\\}\\}";
-                    String value = entry.getValue() != null ? entry.getValue().replace("\n", "<br/>") : "";
-                    html = html.replaceAll(placeholder, value);
-                }
-
-                // Replace [variable] placeholders
-                for (Map.Entry<String, String> entry : data.entrySet()) {
-                    String placeholder = "\\[" + entry.getKey() + "\\]";
-                    String value = entry.getValue() != null ? entry.getValue().replace("\n", "<br/>") : "";
-                    html = html.replaceAll(placeholder, value);
-                }
-
-                // Replace hardcoded static names
-                String name = data.get("name") != null ? data.get("name") : "[name]";
-                String title = data.get("title") != null ? data.get("title") : "[title]";
-                String email = data.get("email") != null ? data.get("email") : "[email]";
-                String phone = data.get("phone") != null ? data.get("phone") : "[phone]";
-                String location = data.get("location") != null ? data.get("location") : "[location]";
-                String linkedin = data.get("linkedin") != null ? data.get("linkedin") : "[linkedin]";
-                String summary = data.get("summary") != null ? data.get("summary") : "";
-                String skills = data.get("skills") != null ? data.get("skills") : "";
-                String experience = data.get("experience") != null ? data.get("experience") : "";
-                String education = data.get("education") != null ? data.get("education") : "";
-
-                html = html.replace("Alexandra Reeves", name)
-                           .replace("Marcus Thornton", name)
-                           .replace("Sarah Chen", name)
-                           .replace("Jane Doe", name)
-                           .replace("John Doe", name)
-                           .replace("Senior UX Designer", title)
-                           .replace("Product Manager", title)
-                           .replace("Senior Software Engineer", title)
-                           .replace("Marketing Director", title)
-                           .replace("alex@email.com", email)
-                           .replace("alexandra.reeves@email.com", email)
-                           .replace("marcus.t@email.com", email)
-                           .replace("sarah.chen@email.com", email)
-                           .replace("+1 (555) 204-8821", phone)
-                           .replace("+1 (555) 123-4567", phone)
-                           .replace("(555) 123-4567", phone)
-                           .replace("San Francisco, CA", location)
-                           .replace("San Francisco", location)
-                           .replace("New York, NY", location)
-                           .replace("Seattle, WA", location)
-                           .replace("linkedin.com/in/alex", linkedin)
-                           .replace("linkedin.com/in/alexandra-reeves", linkedin)
-                           .replace("linkedin.com/in/marcust", linkedin)
-                           .replace("linkedin.com/in/sarahchen", linkedin);
-
-                // Summary Replacements
-                if (!summary.isEmpty()) {
-                    html = html.replaceAll("Product design leader with 8\\+ years crafting intuitive digital experiences\\. Specializing in design systems, user research, and cross-functional collaboration\\.", summary)
-                               .replaceAll("Results-driven product manager with 5\\+ years of experience leading cross-functional teams to deliver scalable consumer products\\.", summary)
-                               .replaceAll("Detail-oriented software engineer with expertise in full-stack development, cloud architecture, and building scalable microservices\\.", summary)
-                               .replaceAll("(?i)Results-driven product manager with 9 years[\\s\\S]*?Wharton\\.", summary);
-                }
-
-                // Skills Replacements
-                if (!skills.isEmpty()) {
-                    html = html.replaceAll("Figma / Sketch[\\s\\S]*?HTML/CSS/JS", skills)
-                               .replaceAll("Product Strategy[\\s\\S]*?A/B Testing", skills)
-                               .replaceAll("Java / Spring Boot[\\s\\S]*?Docker / Kubernetes", skills)
-                               .replace("Figma / Sketch", skills)
-                               .replaceAll("<div class=\"hard-skill\">Product Strategy[\\s\\S]*?A/B Testing</div>", skills)
-                               .replaceAll("(?i)Product Strategy[\\s\\S]*?A/B Testing</div></div>", skills);
-                }
-
-                // Experience Replacements
-                if (!experience.isEmpty()) {
-                    html = html.replaceAll("Lead UX Designer[\\s\\S]*?Conducted 120\\+ user interviews across 8 countries", experience)
-                               .replaceAll("Senior Product Manager[\\s\\S]*?Grew user retention by 25%", experience)
-                               .replaceAll("Senior Backend Engineer[\\s\\S]*?Mentored 3 junior developers", experience)
-                               .replaceAll("Lead UX Designer[\\s\\S]*?weekly design critiques", experience)
-                               .replaceAll("(?i)Owned <strong>Google Discover</strong>[\\s\\S]*?incremental ARR in FY2023</li>", experience);
-                }
-
-                // Education Replacements
-                if (!education.isEmpty()) {
-                    html = html.replaceAll("B\\.[F]?\\.?[S]?\\.? Interaction Design[\\s\\S]*?College of the Arts", education)
-                               .replaceAll("B\\.S\\. Interaction Design[\\s\\S]*?Stanford University", education)
-                               .replaceAll("M\\.B\\.A\\. Product Management[\\s\\S]*?Harvard Business School", education)
-                               .replaceAll("M\\.S\\. Computer Science[\\s\\S]*?MIT", education)
-                               .replaceAll("(?i)MBA, Product Strategy[\\s\\S]*?Silver Medal", education);
-                }
-
-                // Remove any remaining unreplaced placeholders
-                html = html.replaceAll("\\{\\{\\w+\\}\\}", "");
-
-                String css = template.getCssContent() != null ? template.getCssContent() : defaultCss();
-                return "<html><head><style>" + css + "</style></head><body>" + html + "</body></html>";
+                String baseTemplate = template != null && template.getHtmlContent() != null && !template.getHtmlContent().isBlank()
+                    ? template.getHtmlContent()
+                    : DEFAULT_EMPTY_TEMPLATE;
+                String normalizedTemplate = normalizeTemplateHtml(baseTemplate);
+                String html = renderTemplateFromSectionsJson(normalizedTemplate, resume.getSectionsJson());
+                log.info("PDF HTML compiled for resumeId={} (chars={})", resume.getResumeId(), html.length());
+                String css = template != null ? template.getCssContent() : null;
+                return finalizeHtml(html, css);
             } catch (Exception ex) {
                 log.warn("Failed to render template with sectionsJson, falling back to legacy: {}", ex.getMessage());
+            }
+        }
+
+        if (hasEmbeddedFields(resume)) {
+            try {
+                String baseTemplate = template != null && template.getHtmlContent() != null && !template.getHtmlContent().isBlank()
+                    ? template.getHtmlContent()
+                    : DEFAULT_EMPTY_TEMPLATE;
+                String normalizedTemplate = normalizeTemplateHtml(baseTemplate);
+                String synthesizedJson = buildSectionsJsonFromResume(resume);
+                String html = renderTemplateFromSectionsJson(normalizedTemplate, synthesizedJson);
+                String css = template != null ? template.getCssContent() : null;
+                return finalizeHtml(html, css);
+            } catch (Exception ex) {
+                log.warn("Failed to render template from embedded resume fields: {}", ex.getMessage());
             }
         }
 
@@ -334,7 +286,7 @@ public class ExportServiceImpl implements ExportService {
         }
 
         String css = template != null && template.getCssContent() != null ? template.getCssContent() : defaultCss();
-        return "<html><head><style>" + css + "</style></head><body>" + body + "</body></html>";
+        return finalizeHtml(body.toString(), css);
     }
 
     private String defaultCss() {
@@ -345,8 +297,427 @@ public class ExportServiceImpl implements ExportService {
                 + ".section h2{font-size:18px;border-bottom:1px solid #ccc;padding-bottom:4px;}";
     }
 
+    private boolean hasEmbeddedFields(ResumeDTO resume) {
+        return resume != null && (
+                isNotBlank(resume.getName())
+                || isNotBlank(resume.getTitle())
+                || isNotBlank(resume.getEmail())
+                || isNotBlank(resume.getPhone())
+                || isNotBlank(resume.getLocation())
+                || isNotBlank(resume.getSummary())
+                || isNotBlank(resume.getSkills())
+                || isNotBlank(resume.getExperience())
+                || isNotBlank(resume.getEducation())
+                || isNotBlank(resume.getProjects())
+        );
+    }
+
+    private boolean isNotBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String buildSectionsJsonFromResume(ResumeDTO resume) throws JsonProcessingException {
+        Map<String, Object> data = new LinkedHashMap<>();
+        Map<String, Object> personal = new LinkedHashMap<>();
+        personal.put("name", toText(resume.getName()));
+        personal.put("title", toText(resume.getTitle()));
+        personal.put("email", toText(resume.getEmail()));
+        personal.put("phone", toText(resume.getPhone()));
+        personal.put("location", toText(resume.getLocation()));
+        data.put("personal", personal);
+        data.put("summary", toText(resume.getSummary()));
+        data.put("skills", parseJsonList(resume.getSkills()));
+        data.put("experience", parseJsonList(resume.getExperience()));
+        data.put("education", parseJsonList(resume.getEducation()));
+        data.put("projects", parseJsonList(resume.getProjects()));
+        return OBJECT_MAPPER.writeValueAsString(data);
+    }
+
+    private List<Object> parseJsonList(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        try {
+            Object parsed = OBJECT_MAPPER.readValue(raw, Object.class);
+            if (parsed instanceof List<?> list) {
+                return List.copyOf(list);
+            }
+        } catch (Exception ex) {
+            log.debug("Failed to parse JSON list: {}", ex.getMessage());
+        }
+        return List.of();
+    }
+
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private String renderTemplateFromSectionsJson(String htmlTemplate, String sectionsJson) throws JsonProcessingException {
+        Map<String, Object> data = OBJECT_MAPPER.readValue(sectionsJson, Map.class);
+        String html = htmlTemplate;
+
+        Map<String, Object> personal = data.get("personal") instanceof Map
+                ? (Map<String, Object>) data.get("personal")
+                : new LinkedHashMap<>();
+
+        String name = toText(personal.get("name"));
+        String title = toText(personal.get("title"));
+        String email = toText(personal.get("email"));
+        String phone = toText(personal.get("phone"));
+        String location = toText(personal.get("location"));
+        String linkedin = toText(personal.get("linkedin"));
+        String github = toText(personal.get("github"));
+        String website = toText(personal.get("website"));
+
+        html = replaceToken(html, "name", toHtmlText(name));
+        html = replaceToken(html, "initials", toHtmlText(buildInitials(name)));
+        html = replaceToken(html, "title", toHtmlText(title));
+        html = replaceToken(html, "email", toHtmlText(email));
+        html = replaceToken(html, "phone", toHtmlText(phone));
+        html = replaceToken(html, "location", toHtmlText(location));
+        html = replaceToken(html, "linkedin", linkOrText(linkedin, "LinkedIn"));
+        html = replaceToken(html, "github", linkOrText(github, "GitHub"));
+        html = replaceToken(html, "website", linkOrText(website, "Portfolio"));
+
+        String rawSummary = toText(data.get("summary"));
+        String safeSummary = sanitizeSummaryText(rawSummary);
+        html = replaceToken(html, "summary", toHtmlText(safeSummary));
+        html = replaceToken(html, "skills", formatSkills(data.get("skills")));
+        html = replaceToken(html, "experience", formatExperience(data.get("experience")));
+        html = replaceToken(html, "education", formatEducation(data.get("education")));
+        html = replaceToken(html, "projects", formatProjects(data.get("projects")));
+
+        html = html.replaceAll("\\{\\{\\s*[a-zA-Z_]+\\s*\\}\\}", "");
+        html = html.replaceAll("\\{\\s*[a-zA-Z_]+\\s*\\}", "");
+        html = html.replaceAll("\\[\\[\\s*[a-zA-Z_]+\\s*\\]\\]", "");
+
+        return html;
+    }
+
+    private String finalizeHtml(String html, String css) {
+        String safeBody = html == null ? "" : stripHtmlWrapper(html);
+        ExtractedStyle extracted = extractInlineStyles(safeBody);
+        safeBody = extracted.bodyHtml();
+        String mergedCss = mergeCss(css, extracted.css());
+        String layoutOverrides = buildPdfLayoutOverrides(safeBody);
+        mergedCss = mergeCss(mergedCss, layoutOverrides);
+        String safeCss = mergedCss == null ? "" : sanitizeCssForXml(mergedCss);
+        String doc = buildXhtmlDocument(safeBody, safeCss);
+        return sanitizeXmlHtml(doc);
+    }
+
+    private String buildXhtmlDocument(String bodyHtml, String css) {
+        StringBuilder head = new StringBuilder();
+        head.append("<meta charset=\"UTF-8\" />");
+        if (css != null && !css.isBlank()) {
+            head.append("<style>").append(css).append("</style>");
+        }
+        return "<!DOCTYPE html><html xmlns=\"http://www.w3.org/1999/xhtml\"><head>"
+                + head + "</head><body>" + bodyHtml + "</body></html>";
+    }
+
+    private String stripHtmlWrapper(String html) {
+        String cleaned = html;
+        cleaned = cleaned.replaceAll("(?is)<!DOCTYPE[^>]*>", "");
+        cleaned = cleaned.replaceAll("(?is)<\\/?html[^>]*>", "");
+        cleaned = cleaned.replaceAll("(?is)<\\/?head[^>]*>.*?<\\/head>", "");
+        cleaned = cleaned.replaceAll("(?is)<\\/?body[^>]*>", "");
+        return cleaned.trim();
+    }
+
+    private String normalizeTemplateHtml(String templateHtml) {
+        if (templateHtml == null || templateHtml.isBlank()) {
+            return "";
+        }
+        String cleaned = stripHtmlWrapper(templateHtml);
+        // Remove meta tags from templates (we inject a clean one later)
+        cleaned = cleaned.replaceAll("(?i)</meta>", "");
+        cleaned = cleaned.replaceAll("(?i)<meta\\s*[^>]*>", "");
+        // Ensure void tags are self-closed before XHTML wrapping
+        cleaned = cleaned.replaceAll("(?i)<br([^>/]*?)>", "<br$1 />");
+        cleaned = cleaned.replaceAll("(?i)<hr([^>/]*?)>", "<hr$1 />");
+        cleaned = cleaned.replaceAll("(?i)<img([^>/]*?)>", "<img$1 />");
+        cleaned = cleaned.replaceAll("(?i)<input([^>/]*?)>", "<input$1 />");
+        cleaned = cleaned.replaceAll("(?i)<link([^>/]*?)>", "<link$1 />");
+        return cleaned;
+    }
+
+    private String sanitizeXmlHtml(String html) {
+        if (html == null || html.isBlank()) {
+            return html;
+        }
+        boolean hadFamilyParam = html.contains("&family=");
+        String sanitized = forceCloseMetaTags(html);
+        // Ensure void tags are XML-compliant
+        sanitized = sanitized.replaceAll("(?i)<meta(?![^>]*?/>)\\s*([^>]*)>", "<meta$1 />");
+        sanitized = sanitized.replaceAll("(?i)<link(?![^>]*?/>)\\s*([^>]*)>", "<link$1 />");
+        sanitized = sanitized.replaceAll("(?i)<br(?![^>]*?/>)\\s*([^>]*)>", "<br$1 />");
+        sanitized = sanitized.replaceAll("(?i)<hr(?![^>]*?/>)\\s*([^>]*)>", "<hr$1 />");
+        sanitized = sanitized.replaceAll("(?i)<img(?![^>]*?/>)\\s*([^>]*)>", "<img$1 />");
+        sanitized = sanitized.replaceAll("(?i)<input(?![^>]*?/>)\\s*([^>]*)>", "<input$1 />");
+        // Escape stray ampersands (e.g., in href query params) for XML
+        sanitized = sanitized.replaceAll("&(?!amp;|lt;|gt;|quot;|apos;|#\\d+;|#x[0-9a-fA-F]+;)", "&amp;");
+        if (hadFamilyParam) {
+            log.info("Sanitized ampersands in template HTML for PDF rendering");
+        }
+        return sanitized;
+    }
+
+    private String sanitizeCssForXml(String css) {
+        if (css == null || css.isBlank()) {
+            return css;
+        }
+        return css.replaceAll("&(?!amp;|lt;|gt;|quot;|apos;|#\\d+;|#x[0-9a-fA-F]+;)", "&amp;");
+    }
+
+    private String mergeCss(String primary, String secondary) {
+        if (primary == null || primary.isBlank()) {
+            return secondary;
+        }
+        if (secondary == null || secondary.isBlank()) {
+            return primary;
+        }
+        return primary + "\n" + secondary;
+    }
+
+    private ExtractedStyle extractInlineStyles(String html) {
+        if (html == null || html.isBlank()) {
+            return new ExtractedStyle("", "");
+        }
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(?is)<style[^>]*>(.*?)</style>");
+        java.util.regex.Matcher matcher = pattern.matcher(html);
+        StringBuilder css = new StringBuilder();
+        String cleaned = html;
+        while (matcher.find()) {
+            css.append(matcher.group(1)).append("\n");
+        }
+        cleaned = matcher.replaceAll("");
+        return new ExtractedStyle(cleaned, css.toString().trim());
+    }
+
+    private record ExtractedStyle(String bodyHtml, String css) {}
+
+    private String removeMetaTags(String html) {
+        if (html == null || html.isBlank()) {
+            return html;
+        }
+        String cleaned = html.replaceAll("(?i)</meta>", "");
+        return cleaned.replaceAll("(?is)<meta\\b[^>]*>", "");
+    }
+
+    private String forceCloseMetaTags(String html) {
+        if (html == null || html.isBlank()) {
+            return html;
+        }
+        String cleaned = html.replaceAll("(?i)</meta>", "");
+        return cleaned.replaceAll("(?i)<meta(?![^>]*?/>)\\s*([^>]*)>", "<meta$1 />");
+    }
+
+    private void debugTemplateHtml(Long templateId, TemplateDTO template) {
+        if (templateId == null || template == null) {
+            return;
+        }
+        String html = template.getHtmlContent();
+        if (html == null || html.isBlank()) {
+            return;
+        }
+        try {
+            Path dir = Paths.get(outputDir);
+            Files.createDirectories(dir);
+            Path debugPath = dir.resolve("debug_template_" + templateId + ".html");
+            Files.writeString(debugPath, html);
+            boolean hasMeta = html.toLowerCase(Locale.ROOT).contains("<meta");
+            log.info("Template {} HTML captured (meta tags present: {})", templateId, hasMeta);
+        } catch (Exception ex) {
+            log.warn("Failed to write template debug HTML for templateId={}: {}", templateId, ex.getMessage());
+        }
+    }
+
+    private String buildInitials(String name) {
+        if (name == null) {
+            return "";
+        }
+        String trimmed = name.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        String[] parts = trimmed.split("\\s+");
+        StringBuilder out = new StringBuilder();
+        for (String part : parts) {
+            if (!part.isEmpty()) {
+                out.append(part.charAt(0));
+            }
+            if (out.length() >= 2) {
+                break;
+            }
+        }
+        return out.toString().toUpperCase(Locale.ROOT);
+    }
+
+    private String replaceToken(String html, String key, String value) {
+        String safeValue = value == null ? "" : value;
+        String pattern = "\\{\\{\\s*" + key + "\\s*\\}\\}|\\{\\s*" + key + "\\s*\\}|\\[\\[\\s*" + key + "\\s*\\]\\]";
+        return html.replaceAll(pattern, java.util.regex.Matcher.quoteReplacement(safeValue));
+    }
+
+    private String toText(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private String toHtmlText(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String escaped = escapeHtml(value);
+        return escaped.replace("\n", "<br/>");
+    }
+
+    private String escapeHtml(String input) {
+        if (input == null) {
+            return "";
+        }
+        return input
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#039;");
+    }
+
+    private String sanitizeSummaryText(String summary) {
+        if (summary == null) {
+            return "";
+        }
+        String upper = summary.toUpperCase(Locale.ROOT);
+        if (upper.contains("DROP") || upper.contains("CREATE") || upper.contains("USE")) {
+            return "Invalid content removed";
+        }
+        if (upper.contains("<!DOCTYPE")
+                || upper.contains("<HTML")
+                || upper.contains("<HEAD")
+                || upper.contains("<META")
+                || upper.contains("<LINK")) {
+            return "Invalid content removed";
+        }
+        return summary;
+    }
+
+    private String buildPdfLayoutOverrides(String bodyHtml) {
+        if (bodyHtml == null || bodyHtml.isBlank()) {
+            return "";
+        }
+        boolean hasPage = bodyHtml.contains("class=\"page\"");
+        boolean hasSidebar = bodyHtml.contains("class=\"sidebar\"");
+        boolean hasMain = bodyHtml.contains("class=\"main\"");
+        if (!hasPage || !hasSidebar || !hasMain) {
+            return "";
+        }
+        return ".page{display:table;width:794px;table-layout:fixed;}"
+            + ".sidebar{display:table-cell;width:248px;vertical-align:top;}"
+            + ".main{display:table-cell;vertical-align:top;}";
+    }
+
+    private String linkOrText(String value, String label) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String escaped = toHtmlText(value);
+        if (value.toLowerCase(Locale.ROOT).startsWith("http")) {
+            return "<a href=\"" + escaped + "\" target=\"_blank\">" + toHtmlText(label) + "</a>";
+        }
+        return escaped;
+    }
+
+    private String formatSkills(Object raw) {
+        if (!(raw instanceof List<?> skills) || skills.isEmpty()) {
+            return "";
+        }
+        String items = skills.stream()
+                .map(this::toText)
+                .filter(s -> !s.isBlank())
+                .map(s -> "<li>" + toHtmlText(s) + "</li>")
+                .reduce("", String::concat);
+        return "<ul>" + items + "</ul>";
+    }
+
+    private String formatExperience(Object raw) {
+        if (!(raw instanceof List<?> items) || items.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        for (Object item : items) {
+            if (!(item instanceof Map<?, ?> exp)) {
+                continue;
+            }
+            String position = toText(exp.get("position"));
+            String company = toText(exp.get("company"));
+            String start = toText(exp.get("startDate"));
+            String end = toText(exp.get("endDate"));
+            boolean current = Boolean.TRUE.equals(exp.get("current"));
+            String period = start;
+            if (!end.isBlank() || current) {
+                period = start + " - " + (current ? "Present" : end);
+            }
+            String desc = toText(exp.get("description"));
+            out.append("<div>")
+               .append("<strong>").append(toHtmlText(position)).append("</strong>")
+               .append(" - ").append(toHtmlText(company)).append("<br/>")
+               .append("<small>").append(toHtmlText(period)).append("</small>")
+               .append(desc.isBlank() ? "" : "<p>" + toHtmlText(desc) + "</p>")
+               .append("</div>");
+        }
+        return out.toString();
+    }
+
+    private String formatEducation(Object raw) {
+        if (!(raw instanceof List<?> items) || items.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        for (Object item : items) {
+            if (!(item instanceof Map<?, ?> edu)) {
+                continue;
+            }
+            String degree = toText(edu.get("degree"));
+            String field = toText(edu.get("field"));
+            String institution = toText(edu.get("institution"));
+            String start = toText(edu.get("startDate"));
+            String end = toText(edu.get("endDate"));
+            String desc = toText(edu.get("description"));
+            String degreeLine = degree + (field.isBlank() ? "" : " in " + field);
+            String period = start + (end.isBlank() ? "" : " - " + end);
+            out.append("<div>")
+               .append("<strong>").append(toHtmlText(degreeLine)).append("</strong>")
+               .append("<br/>")
+               .append("<small>").append(toHtmlText(institution)).append("</small>")
+               .append(period.isBlank() ? "" : "<div>" + toHtmlText(period) + "</div>")
+               .append(desc.isBlank() ? "" : "<p>" + toHtmlText(desc) + "</p>")
+               .append("</div>");
+        }
+        return out.toString();
+    }
+
+    private String formatProjects(Object raw) {
+        if (!(raw instanceof List<?> items) || items.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        for (Object item : items) {
+            if (!(item instanceof Map<?, ?> proj)) {
+                continue;
+            }
+            String name = toText(proj.get("name"));
+            String tech = toText(proj.get("technologies"));
+            String link = toText(proj.get("link"));
+            String desc = toText(proj.get("description"));
+            out.append("<div>")
+               .append("<strong>").append(toHtmlText(name)).append("</strong>")
+               .append(link.isBlank() ? "" : " - " + linkOrText(link, "Link"))
+               .append(tech.isBlank() ? "" : "<div>Tech: " + toHtmlText(tech) + "</div>")
+               .append(desc.isBlank() ? "" : "<p>" + toHtmlText(desc) + "</p>")
+               .append("</div>");
+        }
+        return out.toString();
     }
 
     private String saveToFile(Long resumeId, String format, String content) throws Exception {
@@ -361,10 +732,21 @@ public class ExportServiceImpl implements ExportService {
 
         if ("PDF".equals(format)) {
             try (FileOutputStream os = new FileOutputStream(filePath.toFile())) {
+                String xhtml = sanitizeXmlHtml(content);
+                Path debugPath = dir.resolve("debug_last.xhtml");
+                Files.writeString(debugPath, xhtml);
+                log.debug("FINAL HTML: {}", xhtml);
                 PdfRendererBuilder builder = new PdfRendererBuilder();
-                builder.withHtmlContent(content, null);
+                builder.useFastMode();
+                builder.withHtmlContent(xhtml, null);
                 builder.toStream(os);
                 builder.run();
+            } catch (Exception ex) {
+                log.warn("PDF render failed; saving HTML fallback: {}", ex.getMessage());
+                String fallbackName = fileName.replace(".pdf", ".html");
+                Path fallbackPath = dir.resolve(fallbackName);
+                Files.writeString(fallbackPath, content);
+                return fallbackPath.toAbsolutePath().toString();
             }
         } else {
             Files.writeString(filePath, content);

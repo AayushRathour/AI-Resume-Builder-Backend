@@ -52,7 +52,18 @@ public class ResumeController {
                 request.getTemplateId(),
                 request.getLanguage(),
                 userPlan);
+        log.info("Create resume sectionsJson length: {}", request.getSectionsJson() == null ? 0 : request.getSectionsJson().length());
         return ResponseEntity.status(HttpStatus.CREATED).body(resumeService.createResume(userId, request, authHeader, userPlan));
+    }
+
+    @PostMapping("/save")
+    public ResponseEntity<ResumeResponse> saveResume(
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = "X-User-Plan", required = false) String userPlan,
+            @RequestParam(value = "userId", required = false) Long fallbackUserId,
+            @Valid @RequestBody ResumeRequest request) {
+        return createResume(authenticatedUserId, authHeader, userPlan, fallbackUserId, request);
     }
 
     @GetMapping("/{id}")
@@ -74,6 +85,8 @@ public class ResumeController {
             @PathVariable("id") Long resumeId,
             @RequestHeader(value = "X-User-Id", required = false) Long requesterUserId,
             @Valid @RequestBody ResumeRequest request) {
+        log.info("Update resume request resumeId={}, userId={}, templateId={}", resumeId, requesterUserId, request.getTemplateId());
+        log.info("Update resume sectionsJson length: {}", request.getSectionsJson() == null ? 0 : request.getSectionsJson().length());
         return ResponseEntity.ok(resumeService.updateResume(resumeId, requesterUserId, request));
     }
 

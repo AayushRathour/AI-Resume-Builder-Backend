@@ -47,11 +47,43 @@ public class Resume {
     @Column(nullable = false)
     private String title;
 
+    @Column
+    private String name;
+
+    @Column
+    private String email;
+
+    @Column
+    private String phone;
+
+    @Column
+    private String location;
+
     @Column(name = "target_job_title", nullable = false)
     private String targetJobTitle;
 
-    @Column(name = "template_id", nullable = false)
+    @Column(name = "template_id")
     private Long templateId;
+
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String summary;
+
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String skills;
+
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String experience;
+
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String education;
+
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
+    private String projects;
 
     @Column(name = "ats_score", nullable = false)
     private Double atsScore;

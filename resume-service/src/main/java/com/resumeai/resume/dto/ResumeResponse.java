@@ -19,10 +19,19 @@ public class ResumeResponse {
 
     private Long resumeId;
     private Long userId;
+    private String name;
     private String title;
+    private String email;
+    private String phone;
+    private String location;
     private String targetJobTitle;
     private Long templateId;
     private String language;
+    private String summary;
+    private String skills;
+    private String experience;
+    private String education;
+    private String projects;
     private String sectionsJson;
     private Double atsScore;
     private ResumeStatus status;

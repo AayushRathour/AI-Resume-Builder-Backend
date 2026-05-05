@@ -1,8 +1,6 @@
 package com.resumeai.resume.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,12 +17,28 @@ public class ResumeRequest {
     @NotBlank(message = "Title is required")
     private String title;
 
+    private String name;
+
+    private String email;
+
+    private String phone;
+
+    private String location;
+
     @NotBlank(message = "Target job title is required")
     private String targetJobTitle;
 
-    @NotNull(message = "Template ID is required")
-    @Positive(message = "Template ID must be a positive number")
     private Long templateId;
+
+    private String summary;
+
+    private String skills;
+
+    private String experience;
+
+    private String education;
+
+    private String projects;
 
     // language is optional — defaults to "English" in the service layer
     private String language;

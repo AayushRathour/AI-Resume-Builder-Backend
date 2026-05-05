@@ -44,10 +44,19 @@ public class ResumeServiceImpl implements ResumeService {
         Resume resume = Resume.builder()
                 .userId(authenticatedUserId)
                 .title(request.getTitle())
+            .name(request.getName())
+            .email(request.getEmail())
+            .phone(request.getPhone())
+            .location(request.getLocation())
                 .targetJobTitle(request.getTargetJobTitle())
                 .templateId(request.getTemplateId())
                 .language(request.getLanguage() != null && !request.getLanguage().isBlank() ? request.getLanguage()
                         : "English")
+            .summary(request.getSummary())
+            .skills(request.getSkills())
+            .experience(request.getExperience())
+            .education(request.getEducation())
+            .projects(request.getProjects())
                 .sectionsJson(request.getSectionsJson())
                 .status(ResumeStatus.DRAFT)
                 .atsScore(0.0)
@@ -91,9 +100,18 @@ public class ResumeServiceImpl implements ResumeService {
         requireOwner(existing, requesterUserId);
 
         existing.setTitle(request.getTitle());
+        existing.setName(request.getName());
+        existing.setEmail(request.getEmail());
+        existing.setPhone(request.getPhone());
+        existing.setLocation(request.getLocation());
         existing.setTargetJobTitle(request.getTargetJobTitle());
         existing.setTemplateId(request.getTemplateId());
         existing.setLanguage(request.getLanguage());
+        existing.setSummary(request.getSummary());
+        existing.setSkills(request.getSkills());
+        existing.setExperience(request.getExperience());
+        existing.setEducation(request.getEducation());
+        existing.setProjects(request.getProjects());
         existing.setSectionsJson(request.getSectionsJson());
 
         Resume saved = resumeRepository.save(existing);
@@ -121,11 +139,20 @@ public class ResumeServiceImpl implements ResumeService {
         Resume duplicated = Resume.builder()
                 .userId(source.getUserId())
                 .title(source.getTitle() + " (Copy)")
+            .name(source.getName())
+            .email(source.getEmail())
+            .phone(source.getPhone())
+            .location(source.getLocation())
                 .targetJobTitle(source.getTargetJobTitle())
                 .templateId(source.getTemplateId())
                 .atsScore(source.getAtsScore())
                 .status(ResumeStatus.DRAFT)
                 .language(source.getLanguage())
+            .summary(source.getSummary())
+            .skills(source.getSkills())
+            .experience(source.getExperience())
+            .education(source.getEducation())
+            .projects(source.getProjects())
                 .sectionsJson(source.getSectionsJson())
                 .isPublic(Boolean.FALSE)
                 .viewCount(0L)
@@ -240,10 +267,19 @@ public class ResumeServiceImpl implements ResumeService {
         return ResumeResponse.builder()
                 .resumeId(resume.getResumeId())
                 .userId(resume.getUserId())
+            .name(resume.getName())
                 .title(resume.getTitle())
+            .email(resume.getEmail())
+            .phone(resume.getPhone())
+            .location(resume.getLocation())
                 .targetJobTitle(resume.getTargetJobTitle())
                 .templateId(resume.getTemplateId())
                 .language(resume.getLanguage())
+            .summary(resume.getSummary())
+            .skills(resume.getSkills())
+            .experience(resume.getExperience())
+            .education(resume.getEducation())
+            .projects(resume.getProjects())
                 .sectionsJson(resume.getSectionsJson())
                 .atsScore(resume.getAtsScore())
                 .status(resume.getStatus())

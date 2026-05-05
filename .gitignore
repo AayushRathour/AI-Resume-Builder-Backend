@@ -62,3 +62,6 @@ templates.json
 templates_utf8.json
 update_template_fields.sql
 auth-service.zip
+
+# Generated exports
+export-service/exports/

@@ -20,15 +20,16 @@ import com.resumeai.template.service.TemplateService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/templates")
+@RequestMapping("/admin/templates")
 @RequiredArgsConstructor
-public class TemplateController {
+public class AdminTemplateController {
 
     private final TemplateService templateService;
 
     @PostMapping
     public ResponseEntity<TemplateResponse> createTemplate(@RequestBody TemplateRequest request) {
         TemplateResponse response = templateService.createTemplate(request);
+        System.out.println("ADMIN SAVED TEMPLATE: " + response.getTemplateId());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -46,51 +47,18 @@ public class TemplateController {
         return ResponseEntity.ok(templateService.getTemplateById(templateId));
     }
 
-    @GetMapping("/{id}/fields")
-    public ResponseEntity<String> getTemplateFields(@PathVariable("id") Long templateId) {
-        try {
-            TemplateResponse template = templateService.getTemplateById(templateId);
-            String fields = template.getFieldsJson();
-            if (fields != null && !fields.isBlank()) {
-                return ResponseEntity.ok(fields);
-            }
-            // Default fallback if template has no fieldsJson set
-            return ResponseEntity.ok(
-                "[{\"key\":\"name\",\"label\":\"Full Name\"}," +
-                "{\"key\":\"title\",\"label\":\"Job Title\"}," +
-                "{\"key\":\"email\",\"label\":\"Email\"}," +
-                "{\"key\":\"phone\",\"label\":\"Phone Number\"}," +
-                "{\"key\":\"linkedin\",\"label\":\"LinkedIn Profile\"}," +
-                "{\"key\":\"summary\",\"label\":\"Professional Summary\"}," +
-                "{\"key\":\"skills\",\"label\":\"Skills\"}," +
-                "{\"key\":\"experience\",\"label\":\"Experience\"}," +
-                "{\"key\":\"education\",\"label\":\"Education\"}]"
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
-    }
-
     @PutMapping("/{id}")
     public ResponseEntity<TemplateResponse> updateTemplate(
             @PathVariable("id") Long templateId,
             @RequestBody TemplateRequest request) {
-        return ResponseEntity.ok(templateService.updateTemplate(templateId, request));
+        TemplateResponse response = templateService.updateTemplate(templateId, request);
+        System.out.println("ADMIN UPDATED TEMPLATE: " + response.getTemplateId());
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTemplate(@PathVariable("id") Long templateId) {
         templateService.deleteTemplate(templateId);
         return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/free")
-    public ResponseEntity<List<TemplateResponse>> getFreeTemplates() {
-        return ResponseEntity.ok(templateService.getFreeTemplates());
-    }
-
-    @GetMapping("/premium")
-    public ResponseEntity<List<TemplateResponse>> getPremiumTemplates() {
-        return ResponseEntity.ok(templateService.getPremiumTemplates());
     }
 }

@@ -8,8 +8,8 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "notifications", indexes = {
-        @Index(name = "idx_user_id", columnList = "userId"),
-        @Index(name = "idx_user_read", columnList = "userId, isRead")
+    @Index(name = "idx_user_id", columnList = "user_id"),
+    @Index(name = "idx_user_read", columnList = "user_id, is_read")
 })
 @Getter
 @Setter
@@ -23,7 +23,7 @@ public class Notification {
     @Column(updatable = false, nullable = false)
     private UUID notificationId;
 
-    @Column(nullable = false)
+    @Column(name = "user_id", nullable = false)
     private Long userId;
 
     @Enumerated(EnumType.STRING)
@@ -33,7 +33,7 @@ public class Notification {
     @Column(nullable = false, length = 1000)
     private String message;
 
-    @Column(nullable = false)
+    @Column(name = "is_read", nullable = false)
     @Builder.Default
     private boolean isRead = false;
 

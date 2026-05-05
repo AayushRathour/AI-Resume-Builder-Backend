@@ -15,7 +15,7 @@ public interface ExportService {
      * @param resumeId the resume to export
      * @return ExportResponse with file path and status
      */
-    ExportResponse exportResume(Long userId, Long resumeId, String format);
+    ExportResponse exportResume(Long userId, Long resumeId, String format, Long templateId);
 
     ExportResponse getStatus(UUID jobId);
 

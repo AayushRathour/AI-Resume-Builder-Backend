@@ -37,10 +37,11 @@ public class ExportController {
     public ResponseEntity<ExportResponse> exportResume(
             @PathVariable Long resumeId,
             @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
-            @RequestParam(defaultValue = "PDF") String format) {
+            @RequestParam(defaultValue = "PDF") String format,
+            @RequestParam(value = "templateId", required = false) Long templateId) {
 
         Long userId = parseUserId(userIdHeader);
-        ExportResponse response = exportService.exportResume(userId, resumeId, format);
+        ExportResponse response = exportService.exportResume(userId, resumeId, format, templateId);
 
         if ("FAILED".equals(response.getStatus())) {
             return ResponseEntity.unprocessableEntity().body(response);

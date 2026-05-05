@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.resumeai.ai</groupId>
 	<artifactId>ai-service</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>0.0.1-SNAPSHOT</version> 
 	<name/>
 	<description/>
 	<url/>
