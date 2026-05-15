@@ -12,6 +12,8 @@ import com.resumeai.ai.entity.AiRequest;
 import com.resumeai.ai.entity.RequestStatus;
 import com.resumeai.ai.entity.RequestType;
 
+/** Repository for persistence and query operations in this domain. */
+
 @Repository
 public interface AiRequestRepository extends JpaRepository<AiRequest, String> {
 
@@ -37,3 +39,4 @@ public interface AiRequestRepository extends JpaRepository<AiRequest, String> {
     @Query("SELECT COUNT(r) FROM AiRequest r WHERE r.userId = :userId AND MONTH(r.createdAt) = MONTH(CURRENT_DATE) AND YEAR(r.createdAt) = YEAR(CURRENT_DATE)")
     long countByUserIdCurrentMonth(@Param("userId") Long userId);
 }
+

@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 
+/** Request payload for notification operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -21,3 +23,6 @@ public class NotificationRequest {
     @NotBlank(message = "message must not be blank")
     private String message;
 }
+
+
+

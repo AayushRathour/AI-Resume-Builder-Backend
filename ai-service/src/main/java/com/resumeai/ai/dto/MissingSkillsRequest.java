@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for missing skills operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -17,3 +19,6 @@ public class MissingSkillsRequest {
     private String resumeText;
     private String jobDescription;
 }
+
+
+

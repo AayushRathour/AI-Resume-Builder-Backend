@@ -7,6 +7,8 @@ import org.springframework.web.multipart.MultipartFile;
 import lombok.extern.slf4j.Slf4j;
 import java.io.InputStream;
 
+/** Provides supporting pdf parser operations for workflow execution. */
+
 @Service
 @Slf4j
 public class PdfParserService {
@@ -16,8 +18,7 @@ public class PdfParserService {
             throw new IllegalArgumentException("File cannot be empty");
         }
 
-        System.out.println("STEP 2: Extracting text");
-        log.info("Extracting text from PDF: {}, size: {} bytes", file.getOriginalFilename(), file.getSize());
+        log.info("STEP 2: Extracting text from PDF: {}, size: {} bytes", file.getOriginalFilename(), file.getSize());
 
         try (InputStream is = file.getInputStream();
              PDDocument document = PDDocument.load(is)) {
@@ -30,9 +31,9 @@ public class PdfParserService {
                 throw new RuntimeException("Resume text extraction failed");
             }
             
-            log.info("Raw PDF text length: {} chars", text != null ? text.length() : 0);
+            log.info("Raw PDF text length: {} chars", text.length());
             log.info("PDF text preview (first 300 chars): {}", 
-                text != null ? text.substring(0, Math.min(300, text.length())) : "NULL");
+                text.substring(0, Math.min(300, text.length())));
             
             // DO NOT lowercase or strip aggressively - preserve original text for Gemini
             String cleaned = cleanText(text);
@@ -60,3 +61,6 @@ public class PdfParserService {
         return cleaned.trim();
     }
 }
+
+
+

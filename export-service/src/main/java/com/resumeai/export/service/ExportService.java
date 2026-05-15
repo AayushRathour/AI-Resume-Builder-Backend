@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/** Defines the service contract for core business operations. */
+
 public interface ExportService {
 
     /**
@@ -25,3 +27,4 @@ public interface ExportService {
 
     void delete(UUID jobId);
 }
+

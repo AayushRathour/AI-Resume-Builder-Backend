@@ -12,6 +12,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.stereotype.Component;
 
+/** Security component supporting authentication workflows in auth-service. */
 @Component
 @Slf4j
 public class OAuth2AuthenticationFailureHandler implements AuthenticationFailureHandler {
@@ -19,6 +20,9 @@ public class OAuth2AuthenticationFailureHandler implements AuthenticationFailure
     @Value("${app.oauth2.failure-redirect-url:http://localhost:3000/login}")
     private String oauthFailureRedirectUrl;
 
+    /**
+     * Handles OAuth2 failures and performs a safe redirect.
+     */
     @Override
     public void onAuthenticationFailure(
             HttpServletRequest request,

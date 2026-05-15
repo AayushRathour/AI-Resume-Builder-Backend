@@ -7,6 +7,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+/**
+ * Applies startup schema compatibility checks for legacy section records.
+ * Keeps section-service upgrades safe without forcing destructive migrations.
+ */
+
 @Configuration
 public class SchemaCompatibilityInitializer {
 

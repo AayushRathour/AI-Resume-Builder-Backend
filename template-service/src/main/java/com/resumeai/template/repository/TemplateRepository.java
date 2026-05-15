@@ -8,6 +8,8 @@ import org.springframework.stereotype.Repository;
 
 import com.resumeai.template.entity.Template;
 
+/** Repository for persistence and query operations in this domain. */
+
 @Repository
 public interface TemplateRepository extends JpaRepository<Template, Long> {
 
@@ -27,3 +29,4 @@ public interface TemplateRepository extends JpaRepository<Template, Long> {
 
     void deleteByTemplateId(Long templateId);
 }
+

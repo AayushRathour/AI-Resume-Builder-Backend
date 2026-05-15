@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for bullet operations. */
+
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class BulletRequest {
     private String jobTitle;
@@ -13,3 +15,6 @@ public class BulletRequest {
     private String responsibilities;
     private String achievements;
 }
+
+
+

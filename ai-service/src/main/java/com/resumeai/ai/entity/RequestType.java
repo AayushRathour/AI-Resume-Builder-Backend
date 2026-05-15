@@ -1,5 +1,7 @@
 package com.resumeai.ai.entity;
 
+/** Enumerates domain-specific state values. */
+
 public enum RequestType {
     SUMMARY,
     BULLETS,
@@ -10,5 +12,8 @@ public enum RequestType {
     TAILOR,
     TRANSLATE,
     RESUME_EXTRACT,
-    MISSING_SKILLS
+    MISSING_SKILLS,
+    CHAT
 }
+
+

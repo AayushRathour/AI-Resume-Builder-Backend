@@ -18,10 +18,14 @@ import com.resumeai.template.dto.TemplateResponse;
 import com.resumeai.template.service.TemplateService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+/** Exposes REST endpoints for admin template workflows. */
 
 @RestController
 @RequestMapping("/admin/templates")
 @RequiredArgsConstructor
+@Slf4j
 public class AdminTemplateController {
 
     private final TemplateService templateService;
@@ -29,7 +33,7 @@ public class AdminTemplateController {
     @PostMapping
     public ResponseEntity<TemplateResponse> createTemplate(@RequestBody TemplateRequest request) {
         TemplateResponse response = templateService.createTemplate(request);
-        System.out.println("ADMIN SAVED TEMPLATE: " + response.getTemplateId());
+        log.info("ADMIN SAVED TEMPLATE: {}", response.getTemplateId());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -52,7 +56,7 @@ public class AdminTemplateController {
             @PathVariable("id") Long templateId,
             @RequestBody TemplateRequest request) {
         TemplateResponse response = templateService.updateTemplate(templateId, request);
-        System.out.println("ADMIN UPDATED TEMPLATE: " + response.getTemplateId());
+        log.info("ADMIN UPDATED TEMPLATE: {}", response.getTemplateId());
         return ResponseEntity.ok(response);
     }
 
@@ -62,3 +66,6 @@ public class AdminTemplateController {
         return ResponseEntity.noContent().build();
     }
 }
+
+
+

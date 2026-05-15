@@ -6,6 +6,8 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+/** Repository for persistence and query operations in this domain. */
+
 @Repository
 public interface JobRepository extends JpaRepository<Job, Long> {
 
@@ -15,3 +17,4 @@ public interface JobRepository extends JpaRepository<Job, Long> {
 
     List<Job> findBySourceOrderByCreatedAtDesc(com.resumeai.jobmatch.entity.JobSource source);
 }
+

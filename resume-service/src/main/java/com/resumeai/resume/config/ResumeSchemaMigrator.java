@@ -9,6 +9,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * Ensures legacy resume columns exist for backward compatibility.
+ */
 @Component
 public class ResumeSchemaMigrator {
 
@@ -20,18 +23,24 @@ public class ResumeSchemaMigrator {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /**
+     * Adds missing columns on startup when running against existing schemas.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void migrate() {
+        final String TYPE_VARCHAR = "VARCHAR(255)";
+        final String TYPE_LONGTEXT = "LONGTEXT";
+
         List<ColumnDef> columns = List.of(
-                new ColumnDef("name", "VARCHAR(255)"),
-                new ColumnDef("email", "VARCHAR(255)"),
-                new ColumnDef("phone", "VARCHAR(255)"),
-                new ColumnDef("location", "VARCHAR(255)"),
-                new ColumnDef("summary", "LONGTEXT"),
-                new ColumnDef("skills", "LONGTEXT"),
-                new ColumnDef("experience", "LONGTEXT"),
-                new ColumnDef("education", "LONGTEXT"),
-                new ColumnDef("projects", "LONGTEXT"));
+                new ColumnDef("name", TYPE_VARCHAR),
+                new ColumnDef("email", TYPE_VARCHAR),
+                new ColumnDef("phone", TYPE_VARCHAR),
+                new ColumnDef("location", TYPE_VARCHAR),
+                new ColumnDef("summary", TYPE_LONGTEXT),
+                new ColumnDef("skills", TYPE_LONGTEXT),
+                new ColumnDef("experience", TYPE_LONGTEXT),
+                new ColumnDef("education", TYPE_LONGTEXT),
+                new ColumnDef("projects", TYPE_LONGTEXT));
 
         for (ColumnDef column : columns) {
             ensureColumn("resumes", column);

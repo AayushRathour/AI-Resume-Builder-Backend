@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for resume extract operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -16,3 +18,6 @@ public class ResumeExtractRequest {
     private Long resumeId;
     private String resumeText;
 }
+
+
+

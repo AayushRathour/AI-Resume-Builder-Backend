@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for payment order operations. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -19,3 +20,6 @@ public class PaymentOrderResponse {
     private String keyId;
     private String plan;
 }
+
+
+

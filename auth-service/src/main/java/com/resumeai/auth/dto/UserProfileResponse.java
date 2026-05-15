@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for user profile operations. */
 @Getter
 @Setter
 @Builder
@@ -21,6 +22,11 @@ public class UserProfileResponse {
     private String role;
     private String provider;
     private boolean isActive;
+    private boolean isDeleted;
     private String subscriptionPlan;
     private LocalDateTime createdAt;
+    private LocalDateTime deletedAt;
 }
+
+
+

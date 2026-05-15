@@ -30,6 +30,8 @@ import lombok.Setter;
         @Index(name = "idx_sections_display_order", columnList = "display_order"),
         @Index(name = "idx_sections_ai_generated", columnList = "ai_generated")
     })
+
+/** Persistent entity used by this service domain. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -72,3 +74,4 @@ public class Section {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 }
+

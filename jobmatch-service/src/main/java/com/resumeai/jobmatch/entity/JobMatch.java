@@ -6,6 +6,8 @@ import lombok.*;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+/** Persistent entity used by this service domain. */
+
 @Entity
 @Table(name = "job_matches")
 @Getter
@@ -65,3 +67,4 @@ public class JobMatch {
         this.createdAt = LocalDateTime.now();
     }
 }
+

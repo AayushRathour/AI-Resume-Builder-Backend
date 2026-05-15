@@ -7,6 +7,7 @@ import com.resumeai.notification.service.NotificationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +15,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 import java.util.Map;
+
+/** Exposes REST endpoints for notification workflows. */
 
 @RestController
 @RequestMapping("/notifications")
@@ -35,6 +38,19 @@ public class NotificationController {
     }
 
     /**
+     * GET /notifications/{userId}/paged?page=0&size=20
+     * Returns paginated notifications for a user.
+     */
+    @GetMapping("/{userId}/paged")
+    public ResponseEntity<Page<NotificationResponse>> getNotificationsPaged(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("GET /notifications/{}/paged?page={}&size={}", userId, page, size);
+        return ResponseEntity.ok(notificationService.getNotificationsPaginated(userId, page, size));
+    }
+
+    /**
      * PUT /notifications/read/{id}
      * Marks a single notification as read. Returns updated notification.
      */
@@ -50,10 +66,10 @@ public class NotificationController {
      * Returns unread notification count for a user.
      */
     @GetMapping("/unread/{userId}")
-    public ResponseEntity<?> getUnreadCount(@PathVariable Long userId) {
+    public ResponseEntity<UnreadCountResponse> getUnreadCount(@PathVariable Long userId) {
         log.info("GET /notifications/unread/{}", userId);
         if (userId == null) {
-            return ResponseEntity.badRequest().body("Invalid user");
+            return ResponseEntity.badRequest().build();
         }
         return ResponseEntity.ok(notificationService.getUnreadCount(userId));
     }
@@ -85,8 +101,7 @@ public class NotificationController {
         return ResponseEntity.ok(Map.of(
                 "userId", userId,
                 "updatedCount", updated,
-                "message", "All notifications marked as read"
-        ));
+                "message", "All notifications marked as read"));
     }
 
     @DeleteMapping("/{id}")
@@ -96,3 +111,6 @@ public class NotificationController {
         return ResponseEntity.noContent().build();
     }
 }
+
+
+

@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+/** Centralized exception handler for consistent API error responses. */
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -22,6 +24,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(TemplateNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleTemplateNotFound(TemplateNotFoundException ex) {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(TemplateValidationException.class)
+    public ResponseEntity<Map<String, Object>> handleTemplateValidation(TemplateValidationException ex) {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -61,3 +68,4 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(body);
     }
 }
+

@@ -17,6 +17,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Persistent entity used by this service domain. */
 @Entity
 @Table(name = "users")
 @Getter
@@ -57,6 +58,13 @@ public class User {
     @Builder.Default
     private boolean isVerified = false;
 
+    @Column(name = "is_deleted", nullable = false)
+    @Builder.Default
+    private boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_plan", nullable = false)
     private SubscriptionPlan subscriptionPlan;
@@ -88,3 +96,4 @@ public class User {
         updatedAt = LocalDateTime.now();
     }
 }
+

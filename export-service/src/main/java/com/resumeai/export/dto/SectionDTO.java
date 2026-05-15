@@ -2,10 +2,7 @@ package com.resumeai.export.dto;
 
 import lombok.*;
 
-/**
- * Mirrors section-service SectionResponse.
- * Field names must match JSON keys returned by GET /api/sections/resume/{resumeId}.
- */
+/** DTO for structured section data exchange across services. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,3 +19,6 @@ public class SectionDTO {
     private Integer orderIndex;
     private Boolean isVisible;
 }
+
+
+

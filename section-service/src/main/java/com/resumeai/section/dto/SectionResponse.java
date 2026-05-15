@@ -10,6 +10,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for section operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -28,3 +30,6 @@ public class SectionResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
+
+
+

@@ -1,0 +1,37 @@
+package com.resumeai.resume.dto;
+
+import lombok.*;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/**
+ * Standardized event DTO published to RabbitMQ.
+ * Consumed by notification-service listeners.
+ */
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class NotificationEvent {
+
+    @Builder.Default
+    private String eventId = UUID.randomUUID().toString();
+
+    private Long userId;
+    private Long resumeId;
+    private String title;
+    private String message;
+
+    @Builder.Default
+    private LocalDateTime timestamp = LocalDateTime.now();
+
+    private String type;
+
+    private String metadataJson;
+
+    // Legacy fields for backward compatibility
+    private String subject;
+    private boolean critical;
+}

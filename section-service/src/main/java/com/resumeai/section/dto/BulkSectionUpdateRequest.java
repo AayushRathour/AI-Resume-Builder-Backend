@@ -10,6 +10,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for bulk section update operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -21,3 +23,6 @@ public class BulkSectionUpdateRequest {
     @NotEmpty(message = "Sections list cannot be empty")
     private List<SectionUpdateItemRequest> sections;
 }
+
+
+

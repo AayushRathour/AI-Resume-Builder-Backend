@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/** DTO for structured resume structured data exchange across services. */
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -27,3 +29,7 @@ public class ResumeStructuredData {
     private String summary;
     private String normalizedText;
 }
+
+
+
+

@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/** Provides supporting their stack operations for workflow execution. */
+
 @Service
 @Slf4j
 public class TheirStackService {
@@ -23,9 +25,10 @@ public class TheirStackService {
     private final String apiKey;
 
     public TheirStackService(ObjectMapper objectMapper,
-                             @Value("${theirstack.api.url}") String apiUrl,
-                             @Value("${theirstack.api.key}") String apiKey) {
-        this.restTemplate = new RestTemplate();
+                             @Value("${theirstack.api.url:}") String apiUrl,
+                             @Value("${theirstack.api.key:}") String apiKey,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false) org.springframework.boot.web.client.RestTemplateBuilder restTemplateBuilder) {
+        this.restTemplate = restTemplateBuilder != null ? restTemplateBuilder.build() : new RestTemplate();
         this.objectMapper = objectMapper;
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
@@ -55,15 +58,21 @@ public class TheirStackService {
             log.info("Searching TheirStack for: {}", query);
             ResponseEntity<String> response = restTemplate.postForEntity(apiUrl, request, String.class);
 
-            if ((response.getBody() == null || response.getBody().isBlank()) && skills != null && !skills.isEmpty()) {
+            String responseBody = response.getBody();
+            if ((responseBody == null || responseBody.isBlank()) && skills != null && !skills.isEmpty()) {
                 String fallbackQuery = query + " " + String.join(" ", skills.stream().limit(3).toList());
                 requestBody.put("query", fallbackQuery);
                 log.info("TheirStack primary query empty, retrying with: {}", fallbackQuery);
                 request = new HttpEntity<>(requestBody, headers);
                 response = restTemplate.postForEntity(apiUrl, request, String.class);
+                responseBody = response.getBody();
             }
 
-            Map<String, Object> responseMap = objectMapper.readValue(response.getBody(), Map.class);
+            if (responseBody == null || responseBody.isBlank()) {
+                return new ArrayList<>();
+            }
+
+            Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
             if (responseMap != null && responseMap.containsKey("data")) {
                 return (List<Map<String, Object>>) responseMap.get("data");
             }
@@ -75,3 +84,6 @@ public class TheirStackService {
         }
     }
 }
+
+
+

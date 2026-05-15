@@ -8,6 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.resumeai.resume.entity.Resume;
 import com.resumeai.resume.entity.ResumeStatus;
 
+/**
+ * Repository for resume persistence and lookup queries.
+ */
 public interface ResumeRepository extends JpaRepository<Resume, Long> {
 
     List<Resume> findByUserId(Long userId);

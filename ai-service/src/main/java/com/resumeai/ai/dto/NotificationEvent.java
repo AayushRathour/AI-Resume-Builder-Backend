@@ -2,10 +2,7 @@ package com.resumeai.ai.dto;
 
 import lombok.*;
 
-/**
- * Event published to RabbitMQ after an AI generation completes.
- * Consumed by notification-service via ai.completed routing key.
- */
+/** Event DTO used for RabbitMQ-based asynchronous workflows. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -16,4 +13,5 @@ public class NotificationEvent {
     private Long userId;
     private String subject;
     private String message;
+    private boolean critical;
 }

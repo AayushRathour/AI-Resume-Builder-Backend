@@ -11,11 +11,20 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** Application entry point for template-service. */
+
 @SpringBootApplication
 @EnableDiscoveryClient
 public class TemplateServiceApplication {
 
     private static final Logger log = LoggerFactory.getLogger(TemplateServiceApplication.class);
+
+    private static final String PLACEHOLDER_NAME = "{{name}}";
+    private static final String PLACEHOLDER_TITLE = "{{title}}";
+    private static final String PLACEHOLDER_EMAIL = "{{email}}";
+    private static final String PLACEHOLDER_PHONE = "{{phone}}";
+    private static final String PLACEHOLDER_LOCATION = "{{location}}";
+    private static final String PLACEHOLDER_LINKEDIN = "{{linkedin}}";
 
 	public static void main(String[] args) {
 		SpringApplication.run(TemplateServiceApplication.class, args);
@@ -37,42 +46,42 @@ public class TemplateServiceApplication {
                 
                 // Update HTML placeholders
                 String html = t.getHtmlContent();
-                if (html != null && !html.contains("{{name}}")) {
-                    html = html.replace("Alexandra Reeves", "{{name}}")
-                               .replace("Marcus Thornton", "{{name}}")
-                               .replace("Sarah Chen", "{{name}}")
-                               .replace("Jane Doe", "{{name}}")
-                               .replace("John Doe", "{{name}}")
-                               .replace("Priya Krishnamurthy", "{{name}}")
-                               .replace("Emily Chen", "{{name}}")
-                               .replace("David Kim", "{{name}}")
-                               .replace("Alex Rivera", "{{name}}");
+                if (html != null && !html.contains(PLACEHOLDER_NAME)) {
+                    html = html.replace("Alexandra Reeves", PLACEHOLDER_NAME)
+                               .replace("Marcus Thornton", PLACEHOLDER_NAME)
+                               .replace("Sarah Chen", PLACEHOLDER_NAME)
+                               .replace("Jane Doe", PLACEHOLDER_NAME)
+                               .replace("John Doe", PLACEHOLDER_NAME)
+                               .replace("Priya Krishnamurthy", PLACEHOLDER_NAME)
+                               .replace("Emily Chen", PLACEHOLDER_NAME)
+                               .replace("David Kim", PLACEHOLDER_NAME)
+                               .replace("Alex Rivera", PLACEHOLDER_NAME);
                                
-                    html = html.replace("Senior Software Engineer", "{{title}}")
-                               .replace("Product Manager", "{{title}}")
-                               .replace("Marketing Director", "{{title}}")
-                               .replace("Growth & Analytics", "{{title}}")
-                               .replace("Senior UI/UX Designer", "{{title}}")
-                               .replace("alexandra.reeves@email.com", "{{email}}")
-                               .replace("marcus.t@email.com", "{{email}}")
-                               .replace("sarah.chen@email.com", "{{email}}")
-                               .replace("priya@pm.io", "{{email}}")
-                               .replace("emily.chen@design.co", "{{email}}")
-                               .replace("+1 (555) 123-4567", "{{phone}}")
-                               .replace("(555) 123-4567", "{{phone}}")
-                               .replace("+1 234 567 8900", "{{phone}}")
-                               .replace("+1 (650) 334-9901", "{{phone}}")
-                               .replace("+1 (415) 555-0198", "{{phone}}")
-                               .replace("San Francisco, CA", "{{location}}")
-                               .replace("New York, NY", "{{location}}")
-                               .replace("Seattle, WA", "{{location}}")
-                               .replace("San Jose, CA", "{{location}}")
-                               .replace("Austin, TX", "{{location}}")
-                               .replace("linkedin.com/in/alexandra-reeves", "{{linkedin}}")
-                               .replace("linkedin.com/in/marcust", "{{linkedin}}")
-                               .replace("linkedin.com/in/sarahchen", "{{linkedin}}")
-                               .replace("linkedin.com/in/priyak", "{{linkedin}}")
-                               .replace("linkedin.com/in/emilyc", "{{linkedin}}");
+                    html = html.replace("Senior Software Engineer", PLACEHOLDER_TITLE)
+                               .replace("Product Manager", PLACEHOLDER_TITLE)
+                               .replace("Marketing Director", PLACEHOLDER_TITLE)
+                               .replace("Growth & Analytics", PLACEHOLDER_TITLE)
+                               .replace("Senior UI/UX Designer", PLACEHOLDER_TITLE)
+                               .replace("alexandra.reeves@email.com", PLACEHOLDER_EMAIL)
+                               .replace("marcus.t@email.com", PLACEHOLDER_EMAIL)
+                               .replace("sarah.chen@email.com", PLACEHOLDER_EMAIL)
+                               .replace("priya@pm.io", PLACEHOLDER_EMAIL)
+                               .replace("emily.chen@design.co", PLACEHOLDER_EMAIL)
+                               .replace("+1 (555) 123-4567", PLACEHOLDER_PHONE)
+                               .replace("(555) 123-4567", PLACEHOLDER_PHONE)
+                               .replace("+1 234 567 8900", PLACEHOLDER_PHONE)
+                               .replace("+1 (650) 334-9901", PLACEHOLDER_PHONE)
+                               .replace("+1 (415) 555-0198", PLACEHOLDER_PHONE)
+                               .replace("San Francisco, CA", PLACEHOLDER_LOCATION)
+                               .replace("New York, NY", PLACEHOLDER_LOCATION)
+                               .replace("Seattle, WA", PLACEHOLDER_LOCATION)
+                               .replace("San Jose, CA", PLACEHOLDER_LOCATION)
+                               .replace("Austin, TX", PLACEHOLDER_LOCATION)
+                               .replace("linkedin.com/in/alexandra-reeves", PLACEHOLDER_LINKEDIN)
+                               .replace("linkedin.com/in/marcust", PLACEHOLDER_LINKEDIN)
+                               .replace("linkedin.com/in/sarahchen", PLACEHOLDER_LINKEDIN)
+                               .replace("linkedin.com/in/priyak", PLACEHOLDER_LINKEDIN)
+                               .replace("linkedin.com/in/emilyc", PLACEHOLDER_LINKEDIN);
                                
                     // For text areas, we need to replace larger chunks or just let users replace the whole section
                     // We can at least wrap the main sections if they exist, but it's safer to just replace known text.
@@ -89,3 +98,6 @@ public class TemplateServiceApplication {
         };
     }
 }
+
+
+

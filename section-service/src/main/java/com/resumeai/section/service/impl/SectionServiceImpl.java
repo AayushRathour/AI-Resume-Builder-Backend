@@ -27,6 +27,8 @@ import com.resumeai.section.service.SectionService;
 
 import lombok.RequiredArgsConstructor;
 
+/** Implements section workflows and service-layer orchestration. */
+
 @Service
 @RequiredArgsConstructor
 public class SectionServiceImpl implements SectionService {
@@ -281,3 +283,6 @@ public class SectionServiceImpl implements SectionService {
         }
     }
 }
+
+
+

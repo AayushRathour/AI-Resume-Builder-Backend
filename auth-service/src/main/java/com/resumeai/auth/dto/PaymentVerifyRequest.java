@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for payment verify operations. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -23,3 +24,6 @@ public class PaymentVerifyRequest {
     @NotBlank(message = "Signature is required")
     private String signature;
 }
+
+
+

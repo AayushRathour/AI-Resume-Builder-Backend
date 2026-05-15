@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for change password operations. */
 @Getter
 @Setter
 @Builder
@@ -20,3 +21,6 @@ public class ChangePasswordRequest {
     @NotBlank(message = "New password is required")
     private String newPassword;
 }
+
+
+

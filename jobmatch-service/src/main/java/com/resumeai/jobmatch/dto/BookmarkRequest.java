@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/** Request payload for bookmark operations. */
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -19,3 +21,6 @@ public class BookmarkRequest {
     @NotNull
     private Boolean bookmarked;
 }
+
+
+

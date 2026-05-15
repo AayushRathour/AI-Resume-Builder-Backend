@@ -2,10 +2,10 @@ package com.resumeai.jobmatch.dto;
 
 import lombok.*;
 
-/**
- * Event published to RabbitMQ after a job match is generated.
- * Consumed by notification-service via job.match routing key.
- */
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/** Event DTO used for RabbitMQ-based asynchronous workflows. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -13,7 +13,22 @@ import lombok.*;
 @Builder
 public class NotificationEvent {
 
+    @Builder.Default
+    private String eventId = UUID.randomUUID().toString();
+
     private Long userId;
-    private String subject;
+    private Long resumeId;
+    private String title;
     private String message;
+
+    @Builder.Default
+    private LocalDateTime timestamp = LocalDateTime.now();
+
+    private String type;
+
+    private String metadataJson;
+
+    // Legacy fields for backward compatibility
+    private String subject;
+    private boolean critical;
 }

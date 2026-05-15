@@ -7,6 +7,8 @@ import com.resumeai.jobmatch.dto.ResumeExtractRequest;
 import com.resumeai.jobmatch.dto.ResumeExtractResponse;
 import org.springframework.stereotype.Component;
 
+/** Fallback behavior for AI service call failures. */
+
 @Component
 public class AiServiceClientFallback implements AiServiceClient {
 
@@ -36,3 +38,7 @@ public class AiServiceClientFallback implements AiServiceClient {
                 .build();
     }
 }
+
+
+
+

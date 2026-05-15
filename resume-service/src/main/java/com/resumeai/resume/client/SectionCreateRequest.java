@@ -6,6 +6,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * Payload to create a new section in section-service.
+ */
 @Getter
 @Setter
 @NoArgsConstructor

@@ -9,19 +9,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Declares the shared notification exchange used by export-service as a producer.
- * The queues and bindings are declared by notification-service (the consumer).
- * Here we only need the exchange declaration so the template can route events.
- */
+/** RabbitMQ configuration for exchanges, queues, bindings, and routing in export-service. */
 @Configuration
 public class RabbitMQConfig {
 
-    @Value("${rabbitmq.exchange}")
+    @Value("${rabbitmq.exchange:resumeai.exchange}")
     private String exchange;
 
     @Bean
-    public TopicExchange notificationExchange() {
+    public TopicExchange resumeaiExchange() {
         return ExchangeBuilder.topicExchange(exchange).durable(true).build();
     }
 

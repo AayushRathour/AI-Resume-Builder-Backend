@@ -2,10 +2,7 @@ package com.resumeai.export.dto;
 
 import lombok.*;
 
-/**
- * Mirrors resume-service ResumeResponse.
- * Field names must match JSON keys returned by GET /api/resumes/{id}.
- */
+/** DTO for structured resume data exchange across services. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -33,3 +30,6 @@ public class ResumeDTO {
     private Double atsScore;
     private String status;
 }
+
+
+

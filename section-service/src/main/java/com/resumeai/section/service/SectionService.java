@@ -8,6 +8,8 @@ import com.resumeai.section.dto.SectionResponse;
 import com.resumeai.section.dto.SectionUpdateItemRequest;
 import com.resumeai.section.entity.SectionType;
 
+/** Defines the service contract for core business operations. */
+
 public interface SectionService {
 
     SectionResponse addSection(SectionRequest request, Long requesterUserId);
@@ -30,3 +32,4 @@ public interface SectionService {
 
     List<SectionResponse> bulkUpdateSections(Long resumeId, List<SectionUpdateItemRequest> updates, Long requesterUserId);
 }
+

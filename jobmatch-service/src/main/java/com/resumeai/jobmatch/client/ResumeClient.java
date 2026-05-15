@@ -6,12 +6,16 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 
 @FeignClient(
-        name = "resume-service",
-        url = "${services.resume.base-url:http://localhost:8082}",
-        fallback = ResumeClientFallback.class
+    name = "resume-service",
+    fallback = ResumeClientFallback.class
 )
+
+/** Feign client for synchronous calls to resume APIs. */
 public interface ResumeClient {
 
     @GetMapping("/api/resumes/{resumeId}")
-    ResumeDTO getResumeById(@PathVariable("resumeId") Long resumeId);
+    ResumeDTO getResumeById(@PathVariable("resumeId") Long resumeId, @org.springframework.web.bind.annotation.RequestHeader("X-User-Id") Long userId);
 }
+
+
+

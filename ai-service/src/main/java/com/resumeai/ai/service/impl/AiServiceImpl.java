@@ -10,6 +10,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -32,6 +34,7 @@ import com.resumeai.ai.dto.ImproveRequest;
 import com.resumeai.ai.dto.MissingSkillsRequest;
 import com.resumeai.ai.dto.MissingSkillsResponse;
 import com.resumeai.ai.dto.NotificationEvent;
+import com.resumeai.ai.dto.ChatRequest;
 import com.resumeai.ai.dto.QuotaResponse;
 import com.resumeai.ai.dto.ResumeExtractRequest;
 import com.resumeai.ai.dto.ResumeExtractResponse;
@@ -46,9 +49,16 @@ import com.resumeai.ai.exception.AiServiceException;
 import com.resumeai.ai.exception.QuotaExceededException;
 import com.resumeai.ai.repository.AiRequestRepository;
 import com.resumeai.ai.service.AiService;
+import com.resumeai.ai.provider.AiProviderFactory;
+import com.resumeai.ai.provider.AiProviderFactory.AiProviderResult;
 import com.resumeai.ai.util.PromptBuilder;
 
 import lombok.RequiredArgsConstructor;
+
+/**
+ * Orchestrates AI generation workflows, quota checks, request persistence,
+ * and completion notifications for ai-service operations.
+ */
 
 @Service
 @RequiredArgsConstructor
@@ -57,14 +67,14 @@ public class AiServiceImpl implements AiService {
     private static final Logger log = LoggerFactory.getLogger(AiServiceImpl.class);
 
     private final AiRequestRepository repository;
-    private static final String NVIDIA_MODEL = "z-ai/glm-4.7";
     private final ObjectMapper objectMapper;
+    private final AiProviderFactory providerFactory;
     private final RabbitTemplate rabbitTemplate;
 
     @Value("${ai.quota.free.monthly-calls:5}")
     private int freeMonthlyCallsLimit;
 
-    @Value("${ai.quota.free.monthly-ats:3}")
+    @Value("${ai.quota.free.monthly-ats:5}")
     private int freeMonthlyAtsLimit;
 
     @Value("${rabbitmq.exchange:notification.exchange}")
@@ -73,7 +83,9 @@ public class AiServiceImpl implements AiService {
     @Value("${rabbitmq.routing-key.ai:ai.completed}")
     private String aiRoutingKey;
 
-    // ── Public API methods ──────────────────────────────────────────────────
+    @Value("${ai.request-timeout-seconds:5}")
+    private int aiRequestTimeoutSeconds;
+
 
     @Override
     public AIResponse generateSummary(Long userId, Long resumeId, SummaryRequest req) {
@@ -113,38 +125,50 @@ public class AiServiceImpl implements AiService {
 
     @Override
     public ATSResponse checkAtsCompatibility(Long userId, Long resumeId, ATSRequest req) {
-        enforceAtsQuota(userId);
-        String prompt = PromptBuilder.buildAtsPrompt(req.getResumeContent(), req.getJobDescription());
+        String resumeContent = req.getResumeContent() == null ? "" : req.getResumeContent();
+        String jobDescription = req.getJobDescription() == null ? "" : req.getJobDescription();
+
+        if (resumeContent.isBlank()) {
+            return ATSResponse.builder()
+                    .score(0)
+                    .missingKeywords(List.of("resume content"))
+                    .recommendations("Could not extract readable resume content. Upload a valid PDF/DOCX/TXT.")
+                    .build();
+        }
+
+        // ATS upload flow sends userId=0; skip strict quota there so standalone checks keep working.
+        if (userId != null && userId > 0) {
+            enforceAtsQuota(userId);
+        }
+
+        // ATS upload flow often has no JD; return deterministic score immediately to keep checks fast.
+        if (jobDescription.isBlank()) {
+            ATSResponse standalone = buildAtsFallbackResponse(resumeContent, "", null);
+            standalone.setRecommendations(standalone.getRecommendations()
+                    + "\n\nFast mode used: computed without external AI for quick response.");
+            return standalone;
+        }
+
+        // Route ATS checks through provider fallback so scoring remains available during provider outages.
+        String prompt = PromptBuilder.buildAtsPrompt(resumeContent, jobDescription);
 
         AiRequest record = saveQueued(userId, resumeId, RequestType.ATS, prompt);
 
         try {
-            String rawText = extractNvidiaContent(callAi(prompt, record));
-            ATSResponse atsResponse = parseAtsResponse(rawText, req.getResumeContent(), req.getJobDescription());
-            markCompleted(record, rawText, estimateTokens(rawText));
+            AiProviderResult aiResult = executeWithTimeout(() -> providerFactory.generateWithFallback(prompt), "ATS_CHECK");
+            record.setModel(aiResult.model());
+            ATSResponse atsResponse = parseAtsResponse(aiResult.text(), resumeContent, jobDescription);
+            markCompleted(record, aiResult.text(), estimateTokens(aiResult.text()));
             atsResponse.setRequestId(record.getRequestId());
             return atsResponse;
         } catch (QuotaExceededException ex) {
             log.warn("AI quota exceeded. Falling back to hybrid ATS scoring.");
-            AtsHybridResult hybridResult = computeHybridAts(req.getResumeContent(), req.getJobDescription());
-            ATSResponse atsResponse = ATSResponse.builder()
-                    .score(hybridResult.keywordScore)
-                    .missingKeywords(new ArrayList<>(hybridResult.missingKeywords))
-                    .recommendations("AI TEMPORARILY UNAVAILABLE")
-                    .requestId(record.getRequestId())
-                    .build();
+            ATSResponse atsResponse = buildAtsFallbackResponse(resumeContent, jobDescription, record.getRequestId());
             markCompleted(record, "AI TEMPORARILY UNAVAILABLE", 0);
             return atsResponse;
         } catch (Exception ex) {
             markFailed(record);
-            AtsHybridResult hybridResult = computeHybridAts(req.getResumeContent(), req.getJobDescription());
-            ATSResponse atsResponse = ATSResponse.builder()
-                    .score(hybridResult.keywordScore)
-                    .missingKeywords(new ArrayList<>(hybridResult.missingKeywords))
-                    .recommendations("AI TEMPORARILY UNAVAILABLE")
-                    .requestId(record.getRequestId())
-                    .build();
-            return atsResponse;
+            return buildAtsFallbackResponse(resumeContent, jobDescription, record.getRequestId());
         }
     }
 
@@ -176,6 +200,14 @@ public class AiServiceImpl implements AiService {
     }
 
     @Override
+    public AIResponse chat(Long userId, ChatRequest req) {
+        enforceQuota(userId, RequestType.CHAT);
+        String prompt = PromptBuilder.buildChatPrompt(req.getMessage(), req.getContext());
+        // For general chat, we might not have a resumeId, so we pass null or 0
+        return executeAndSave(userId, null, RequestType.CHAT, prompt);
+    }
+
+    @Override
     public ResumeExtractResponse extractResumeData(ResumeExtractRequest request) {
         if (request == null) {
             throw new RuntimeException("Request is NULL");
@@ -186,7 +218,7 @@ public class AiServiceImpl implements AiService {
             throw new RuntimeException("PDF TEXT EMPTY");
         }
 
-        System.out.println("EXTRACTED TEXT LENGTH: " + resumeText.length());
+        log.info("[AI] EXTRACTED TEXT LENGTH: {}", resumeText.length());
 
         String prompt = """
 You are an AI resume parser.
@@ -227,12 +259,14 @@ Resume:
                     .requestType(RequestType.RESUME_EXTRACT)
                     .inputPrompt(prompt)
                     .status(RequestStatus.QUEUED)
-                    .model(NVIDIA_MODEL)
+                    .model("pending")
                     .build();
         }
 
         try {
-            String rawText = extractNvidiaContent(callAi(prompt, record));
+            AiProviderResult aiResult = providerFactory.generateWithFallback(prompt);
+            record.setModel(aiResult.model());
+            String rawText = aiResult.text();
             String cleaned = cleanJsonString(rawText);
             ResumeExtractResponse response = objectMapper.readValue(cleaned, ResumeExtractResponse.class);
             if (persisted) {
@@ -284,7 +318,9 @@ Job Description:
 
         AiRequest record = saveQueued(request.getUserId(), request.getResumeId(), RequestType.MISSING_SKILLS, prompt);
         try {
-            String rawText = extractNvidiaContent(callAi(prompt, record));
+            AiProviderResult aiResult = providerFactory.generateWithFallback(prompt);
+            record.setModel(aiResult.model());
+            String rawText = aiResult.text();
             String cleaned = cleanJsonString(rawText);
             MissingSkillsResponse response = objectMapper.readValue(cleaned, MissingSkillsResponse.class);
             markCompleted(record, rawText, estimateTokens(rawText));
@@ -304,7 +340,7 @@ Job Description:
         return repository.findByUserId(userId)
                 .stream()
                 .map(this::mapToHistoryResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -328,102 +364,39 @@ Job Description:
                 .build();
     }
 
-    // ── Private helpers ─────────────────────────────────────────────────────
 
     private AIResponse executeAndSave(Long userId, Long resumeId, RequestType type, String prompt) {
+        // Standard request lifecycle: queue, execute via provider, then persist completion state.
         AiRequest record = saveQueued(userId, resumeId, type, prompt);
         try {
-            String text = extractNvidiaContent(callAi(prompt, record));
-            int tokens = estimateTokens(text);
-            markCompleted(record, text, tokens);
+            AiProviderResult aiResult = executeWithTimeout(
+                    () -> providerFactory.generateWithFallback(prompt),
+                    type.name()
+            );
+            record.setModel(aiResult.model());
+            int tokens = estimateTokens(aiResult.text());
+            markCompleted(record, aiResult.text(), tokens);
             return AIResponse.builder()
-                    .text(text)
-                    .model(record.getModel())
+                    .text(aiResult.text())
+                    .model(aiResult.model())
                     .tokensUsed(tokens)
                     .requestId(record.getRequestId())
                     .build();
         } catch (Exception ex) {
             markFailed(record);
+            String fallbackModel = "unavailable";
+            try { fallbackModel = providerFactory.getProvider().getModelName(); } catch (Exception ignored) {}
             return AIResponse.builder()
                     .text("AI TEMPORARILY UNAVAILABLE")
-                    .model(NVIDIA_MODEL)
+                    .model(fallbackModel)
                     .tokensUsed(0)
                     .requestId(record.getRequestId())
                     .build();
         }
     }
 
-    /**
-     * NVIDIA NIM provider (glm-4.7).
-     */
-    private String callAi(String prompt, AiRequest record) {
-        String response = callNvidiaAI(prompt);
-        record.setModel(NVIDIA_MODEL);
-        return response;
-    }
+    // which supports Gemini, NVIDIA, and future providers with automatic fallback.
 
-    private String extractNvidiaContent(String raw) {
-        if (raw == null || !raw.contains("choices")) {
-            throw new RuntimeException("Invalid AI response");
-        }
-        try {
-            JsonNode root = objectMapper.readTree(raw);
-            JsonNode content = root.path("choices").path(0).path("message").path("content");
-            if (!content.isMissingNode() && !content.asText("").isBlank()) {
-                return content.asText();
-            }
-        } catch (Exception ignored) {
-            // Fall through to raw output
-        }
-        return raw;
-    }
-
-    public String callNvidiaAI(String prompt) {
-        try {
-            String url = "https://integrate.api.nvidia.com/v1/chat/completions";
-            String apiKey = System.getenv("NVIDIA_API_KEY");
-            if (apiKey == null || apiKey.isBlank()) {
-                throw new AiServiceException("NVIDIA_API_KEY is not configured");
-            }
-
-            System.out.println("NVIDIA_API_KEY=" + (apiKey.length() > 6 ? apiKey.substring(0, 6) + "***" : "***"));
-
-                org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
-
-                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-                headers.setBearerAuth(apiKey);
-                headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-
-                Map<String, Object> body = new HashMap<>();
-                body.put("model", "z-ai/glm-4.7");
-                List<Map<String, String>> messages = new ArrayList<>();
-                Map<String, String> msg = new HashMap<>();
-                msg.put("role", "user");
-                msg.put("content", prompt);
-                messages.add(msg);
-                body.put("messages", messages);
-                body.put("temperature", 0.3);
-                body.put("max_tokens", 2000);
-
-                org.springframework.http.HttpEntity<Map<String, Object>> request =
-                    new org.springframework.http.HttpEntity<>(body, headers);
-
-                org.springframework.http.ResponseEntity<String> response =
-                    restTemplate.postForEntity(url, request, String.class);
-
-                System.out.println("NVIDIA RESPONSE: " + response.getBody());
-
-            if (response.getBody() == null || response.getBody().isBlank()) {
-                throw new AiServiceException("NVIDIA AI returned empty response");
-            }
-
-            return response.getBody();
-        } catch (Exception e) {
-            throw new RuntimeException("NVIDIA AI FAILED: " + e.getMessage(), e);
-        }
-    }
-
-    @Transactional
     private AiRequest saveQueued(Long userId, Long resumeId, RequestType type, String prompt) {
         AiRequest req = AiRequest.builder()
                 .userId(userId)
@@ -435,7 +408,6 @@ Job Description:
         return repository.save(req);
     }
 
-    @Transactional
     private void markCompleted(AiRequest req, String response, int tokens) {
         req.setAiResponse(response);
         req.setTokensUsed(tokens);
@@ -443,11 +415,11 @@ Job Description:
         req.setCompletedAt(LocalDateTime.now());
         repository.save(req);
 
-        // Publish ai.completed event — notification-service will create a notification
+        // Publish ai.completed so notification-service can deliver realtime completion updates.
         try {
             NotificationEvent event = NotificationEvent.builder()
                     .userId(req.getUserId())
-                    .subject("AI Enhancement Complete — ResumeAI")
+                    .subject("AI Enhancement Complete  ResumeAI")
                     .message("Your AI " + req.getRequestType().name().toLowerCase()
                             + " request has been completed successfully.")
                     .build();
@@ -458,7 +430,6 @@ Job Description:
         }
     }
 
-    @Transactional
     private void markFailed(AiRequest req) {
         req.setStatus(RequestStatus.FAILED);
         req.setCompletedAt(LocalDateTime.now());
@@ -487,18 +458,30 @@ Job Description:
     }
 
     private ATSResponse parseAtsResponse(String rawText, String resumeContent, String jobDescription) {
-        // Strip markdown code fences if the AI wraps response in ```json ... ```
+        // Blend AI output with deterministic keyword analysis for stable and explainable ATS scoring.
         String cleaned = cleanJsonString(rawText);
+        boolean hasJobDescription = jobDescription != null && !jobDescription.isBlank();
         AtsHybridResult hybridResult = computeHybridAts(resumeContent, jobDescription);
+        AtsStandaloneResult standalone = computeStandaloneAts(resumeContent);
         try {
             JsonNode node = objectMapper.readTree(cleaned);
             int aiScore = node.path("score").asInt(0);
-            int finalScore = Math.max(0, Math.min(100, Math.round((hybridResult.keywordScore * 0.7f) + (aiScore * 0.3f))));
+            int finalScore;
+            List<String> keywords;
+
+            if (hasJobDescription) {
+                finalScore = Math.max(0, Math.min(100,
+                        Math.round((hybridResult.keywordScore * 0.7f) + (aiScore * 0.3f))));
+                keywords = new ArrayList<>(hybridResult.missingKeywords);
+            } else {
+                // ATS upload mode often has no JD; avoid near-zero scores caused by empty JD keyword match.
+                finalScore = Math.max(standalone.score(), aiScore);
+                keywords = new ArrayList<>(standalone.missingItems());
+            }
 
             List<String> aiMissingKeywords = Arrays.asList(
                 objectMapper.convertValue(node.path("missingKeywords"), String[].class)
             );
-            List<String> keywords = new ArrayList<>(hybridResult.missingKeywords);
             for (String keyword : aiMissingKeywords) {
                 if (keyword != null && !keyword.isBlank() && !keywords.contains(keyword)) {
                     keywords.add(keyword);
@@ -508,10 +491,19 @@ Job Description:
             return ATSResponse.builder()
                     .score(finalScore)
                     .missingKeywords(keywords)
-                    .recommendations(mergeRecommendations(recommendations, hybridResult))
+                    .recommendations(hasJobDescription
+                            ? mergeRecommendations(recommendations, hybridResult)
+                            : mergeStandaloneRecommendations(recommendations, standalone))
                     .build();
         } catch (JsonProcessingException ex) {
             log.warn("Could not parse ATS JSON response, returning raw text as recommendations");
+            if (!hasJobDescription) {
+                return ATSResponse.builder()
+                        .score(standalone.score())
+                        .missingKeywords(standalone.missingItems())
+                        .recommendations(mergeStandaloneRecommendations(rawText, standalone))
+                        .build();
+            }
             return ATSResponse.builder()
                     .score(hybridResult.keywordScore)
                     .missingKeywords(hybridResult.missingKeywords)
@@ -533,6 +525,44 @@ Job Description:
                     .append(String.join(", ", hybrid.missingKeywords));
         }
         return builder.toString();
+    }
+
+    private String mergeStandaloneRecommendations(String aiRecommendations, AtsStandaloneResult standalone) {
+        StringBuilder builder = new StringBuilder();
+        if (aiRecommendations != null && !aiRecommendations.isBlank()) {
+            builder.append(aiRecommendations.trim());
+        }
+        if (builder.length() > 0) {
+            builder.append("\n\n");
+        }
+        builder.append(standalone.recommendations());
+        return builder.toString();
+    }
+
+    private ATSResponse buildAtsFallbackResponse(String resumeContent, String jobDescription, String requestId) {
+        AtsStandaloneResult standalone = computeStandaloneAts(resumeContent);
+        if (jobDescription == null || jobDescription.isBlank()) {
+            return ATSResponse.builder()
+                    .score(standalone.score())
+                    .missingKeywords(standalone.missingItems())
+                    .recommendations(standalone.recommendations() + "\n\nAI temporarily unavailable. Showing static ATS result.")
+                    .requestId(requestId)
+                    .build();
+        }
+
+        AtsHybridResult hybridResult = computeHybridAts(resumeContent, jobDescription);
+        StringBuilder recommendations = new StringBuilder("AI temporarily unavailable. Showing keyword-based ATS result.");
+        recommendations.append("\n\nFormat/Readability: ").append(standalone.recommendations());
+        if (!hybridResult.missingKeywords.isEmpty()) {
+            recommendations.append("\nAdd these missing keywords where relevant: ")
+                    .append(String.join(", ", hybridResult.missingKeywords));
+        }
+        return ATSResponse.builder()
+                .score(hybridResult.keywordScore)
+                .missingKeywords(new ArrayList<>(hybridResult.missingKeywords))
+                .recommendations(recommendations.toString())
+                .requestId(requestId)
+                .build();
     }
 
     private AtsHybridResult computeHybridAts(String resumeContent, String jobDescription) {
@@ -595,7 +625,108 @@ Job Description:
                 .trim();
     }
 
+    private AtsStandaloneResult computeStandaloneAts(String resumeContent) {
+        String lower = resumeContent == null ? "" : resumeContent.toLowerCase(Locale.ROOT);
+        int score = 0;
+        List<String> missingItems = new ArrayList<>();
+        List<String> suggestions = new ArrayList<>();
+
+        String[][] sectionChecks = {
+                {"email", "phone", "@", "linkedin"},
+                {"experience", "employment", "work history", "professional experience"},
+                {"education", "degree", "university", "college", "bachelor", "master"},
+                {"skills", "technical skills", "core competencies"},
+                {"summary", "objective", "profile", "about"}
+        };
+        String[] sectionNames = {
+                "Contact information",
+                "Work experience",
+                "Education",
+                "Skills",
+                "Summary/Objective"
+        };
+
+        for (int i = 0; i < sectionChecks.length; i++) {
+            boolean present = false;
+            for (String token : sectionChecks[i]) {
+                if (lower.contains(token)) {
+                    present = true;
+                    break;
+                }
+            }
+            if (present) {
+                score += 12;
+            } else {
+                missingItems.add(sectionNames[i]);
+            }
+        }
+
+        String[][] optionalChecks = {
+                {"project", "projects"},
+                {"certification", "certified"},
+                {"achievement", "award", "accomplishment"}
+        };
+        String[] optionalNames = {"Projects", "Certifications", "Achievements"};
+        for (int i = 0; i < optionalChecks.length; i++) {
+            boolean present = false;
+            for (String token : optionalChecks[i]) {
+                if (lower.contains(token)) {
+                    present = true;
+                    break;
+                }
+            }
+            if (present) {
+                score += 6;
+            } else {
+                missingItems.add(optionalNames[i]);
+            }
+        }
+
+        String[] actionVerbs = {
+                "led", "managed", "developed", "designed", "implemented", "created",
+                "improved", "optimized", "increased", "reduced", "delivered", "built"
+        };
+        int verbCount = 0;
+        for (String verb : actionVerbs) {
+            if (lower.contains(verb)) {
+                verbCount++;
+            }
+        }
+        score += Math.min(12, verbCount * 2);
+        if (verbCount < 4) {
+            suggestions.add("Use stronger action verbs (for example: led, built, optimized, delivered).");
+        }
+
+        boolean hasMetrics = resumeContent != null && (
+                resumeContent.matches("(?s).*\\d+%.*") ||
+                resumeContent.matches("(?s).*\\$\\s*\\d+.*") ||
+                resumeContent.matches("(?s).*\\d+\\+.*"));
+        if (hasMetrics) {
+            score += 10;
+        } else {
+            missingItems.add("Quantified achievements");
+            suggestions.add("Add measurable outcomes (percentages, counts, revenue, time saved).");
+        }
+
+        int normalizedScore = Math.max(20, Math.min(100, score));
+
+        if (missingItems.contains("Skills")) {
+            suggestions.add("Add a dedicated skills section with tools, languages, and frameworks.");
+        }
+        if (missingItems.contains("Work experience")) {
+            suggestions.add("Include a clear work experience section with role, company, dates, and impact bullets.");
+        }
+        if (suggestions.isEmpty()) {
+            suggestions.add("Good baseline ATS structure. Tailor keywords for each job description before applying.");
+        }
+
+        return new AtsStandaloneResult(normalizedScore, missingItems, String.join("\n", suggestions));
+    }
+
     private record AtsHybridResult(int keywordScore, List<String> missingKeywords) {
+    }
+
+    private record AtsStandaloneResult(int score, List<String> missingItems, String recommendations) {
     }
 
     private String cleanJsonString(String jsonText) {
@@ -640,12 +771,34 @@ Job Description:
                 .filter(v -> v != null && !v.isBlank())
                 .map(v -> v.trim().toLowerCase(Locale.ROOT))
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private int estimateTokens(String text) {
         // Rough estimate: ~4 chars per token
         return text == null ? 0 : text.length() / 4;
+    }
+
+    private AiProviderResult executeWithTimeout(java.util.concurrent.Callable<AiProviderResult> task, String operationName)
+            throws Exception {
+        long timeoutSeconds = Math.max(2, aiRequestTimeoutSeconds);
+        try {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return task.call();
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }).get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException ex) {
+            throw new AiServiceException(operationName + " timed out after " + timeoutSeconds + " seconds", ex);
+        } catch (java.util.concurrent.ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof Exception e) {
+                throw e;
+            }
+            throw new AiServiceException("AI execution failed", ex);
+        }
     }
 
     private AIHistoryResponse mapToHistoryResponse(AiRequest req) {

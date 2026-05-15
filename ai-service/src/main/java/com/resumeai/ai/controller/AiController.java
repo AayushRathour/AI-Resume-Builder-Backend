@@ -19,6 +19,7 @@ import com.resumeai.ai.dto.AIResponse;
 import com.resumeai.ai.dto.ATSRequest;
 import com.resumeai.ai.dto.ATSResponse;
 import com.resumeai.ai.dto.BulletRequest;
+import com.resumeai.ai.dto.ChatRequest;
 import com.resumeai.ai.dto.CoverLetterRequest;
 import com.resumeai.ai.dto.ImproveRequest;
 import com.resumeai.ai.dto.MissingSkillsRequest;
@@ -34,6 +35,7 @@ import com.resumeai.ai.dto.TranslateRequest;
 import com.resumeai.ai.service.AiService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.multipart.MultipartFile;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -42,9 +44,15 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import java.io.InputStream;
 import java.util.Map;
 
+/**
+ * Exposes AI enhancement endpoints such as summary, ATS, tailoring, and extraction.
+ * Serves as the API entry point for ai-service workflows.
+ */
+
 @RestController
 @RequestMapping("/ai")
 @RequiredArgsConstructor
+@Slf4j
 public class AiController {
 
     private final AiService aiService;
@@ -95,8 +103,11 @@ public class AiController {
     }
 
     @PostMapping("/ats-upload")
-    public ResponseEntity<StatusResponse<?>> atsUpload(@RequestParam("file") MultipartFile file) {
-        // Step 1: Extract text from the uploaded file
+    public ResponseEntity<StatusResponse<?>> atsUpload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long resumeId) {
+        // Extract text first, then run ATS scoring on the extracted content.
         String text;
         try {
             text = extractText(file);
@@ -112,7 +123,8 @@ public class AiController {
                     .resumeContent(text)
                     .jobDescription("")
                     .build();
-            ATSResponse ats = aiService.checkAtsCompatibility(0L, null, request);
+            Long effectiveUserId = (userId != null && userId > 0) ? userId : 0L;
+            ATSResponse ats = aiService.checkAtsCompatibility(effectiveUserId, resumeId, request);
             return ResponseEntity.ok(ok(ats));
         } catch (Exception e) {
             String fallbackResult = computeLocalAtsAnalysis(text);
@@ -181,24 +193,24 @@ public class AiController {
         // Build human-readable result
         StringBuilder sb = new StringBuilder();
         sb.append("ATS Score: ").append(score).append("/100\n\n");
-        sb.append("✅ Found Sections: ").append(String.join(", ", found)).append("\n\n");
+        sb.append("Found Sections: ").append(String.join(", ", found)).append("\n\n");
 
         if (!missing.isEmpty()) {
-            sb.append("❌ Missing/Weak Areas: ").append(String.join(", ", missing)).append("\n\n");
+            sb.append("Missing/Weak Areas: ").append(String.join(", ", missing)).append("\n\n");
         }
 
         sb.append("Suggestions:\n");
-        sb.append("1. ").append(missing.isEmpty() ? "Your resume covers all key sections — great job!" : "Add these missing sections: " + String.join(", ", missing)).append("\n");
+        sb.append("1. ").append(missing.isEmpty() ? "Your resume covers all key sections - great job!" : "Add these missing sections: " + String.join(", ", missing)).append("\n");
         if (verbCount < 5) {
             sb.append("2. Use more action verbs (led, managed, developed, implemented, etc.)\n");
         }
         if (!hasNumbers) {
             sb.append("3. Add quantifiable achievements (e.g., 'Increased sales by 20%')\n");
         }
-        sb.append("4. Keep formatting simple — avoid tables, images, and fancy layouts for ATS\n");
+        sb.append("4. Keep formatting simple - avoid tables, images, and fancy layouts for ATS\n");
         sb.append("5. Use standard section headings like 'Experience', 'Education', 'Skills'\n");
 
-        sb.append("\n⚠️ Note: This analysis was performed using keyword matching. AI-powered analysis is temporarily unavailable.");
+        sb.append("\nNote: This analysis was performed using keyword matching. AI-powered analysis is temporarily unavailable.");
 
         return sb.toString();
     }
@@ -214,7 +226,7 @@ public class AiController {
                 PDFTextStripper pdfStripper = new PDFTextStripper();
                 String text = pdfStripper.getText(document);
                 document.close();
-                System.out.println("EXTRACTED TEXT LENGTH: " + (text == null ? 0 : text.length()));
+                log.info("EXTRACTED TEXT LENGTH: {}", text == null ? 0 : text.length());
                 if (text == null || text.trim().isEmpty()) {
                     throw new RuntimeException("PDF TEXT EMPTY");
                 }
@@ -258,16 +270,24 @@ public class AiController {
                 .body(ok(aiService.translateResume(userId, resumeId, request)));
     }
 
+    @PostMapping("/chat")
+    public ResponseEntity<StatusResponse<AIResponse>> chat(
+            @RequestParam Long userId,
+            @RequestBody ChatRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ok(aiService.chat(userId, request)));
+    }
+
     @PostMapping("/resume-extract")
     public ResponseEntity<Map<String, Object>> extractResume(@RequestBody ResumeExtractRequest request) {
-        System.out.println("API HIT: /resume-extract");
+        log.info("API HIT: /resume-extract (JSON body)");
         if (request == null) {
             throw new RuntimeException("Request is NULL");
         }
         if (request.getResumeText() == null || request.getResumeText().trim().isEmpty()) {
             throw new RuntimeException("PDF TEXT EMPTY");
         }
-        System.out.println("EXTRACTED TEXT LENGTH: " + request.getResumeText().length());
+        log.info("EXTRACTED TEXT LENGTH: {}", request.getResumeText().length());
         return ResponseEntity.ok(Map.of(
                 "status", "success",
                 "data", aiService.extractResumeData(request)
@@ -279,7 +299,7 @@ public class AiController {
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) Long resumeId,
             @RequestPart(required = false, value = "file") MultipartFile file) {
-        System.out.println("API HIT: /resume-extract");
+        log.info("API HIT: /resume-extract (multipart file)");
 
         if (file == null) {
             throw new RuntimeException("File is NULL");
@@ -292,7 +312,7 @@ public class AiController {
             throw new RuntimeException("Failed to extract text from uploaded file: " + e.getMessage(), e);
         }
 
-        System.out.println("EXTRACTED TEXT LENGTH: " + (text == null ? 0 : text.length()));
+        log.info("EXTRACTED TEXT LENGTH: {}", text == null ? 0 : text.length());
         if (text == null || text.trim().isEmpty()) {
             throw new RuntimeException("PDF TEXT EMPTY");
         }

@@ -6,6 +6,8 @@ import org.springframework.context.annotation.Configuration;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/** Configures shared Jackson ObjectMapper behavior for ai-service payload parsing. */
+
 @Configuration
 public class JacksonConfig {
 

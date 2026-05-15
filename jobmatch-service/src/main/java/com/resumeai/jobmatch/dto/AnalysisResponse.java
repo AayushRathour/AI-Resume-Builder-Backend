@@ -4,9 +4,7 @@ import lombok.*;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Complete analysis response including extracted resume data + job matches
- */
+/** Response payload for analysis operations. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -32,3 +30,6 @@ public class AnalysisResponse {
         private String summary;
     }
 }
+
+
+

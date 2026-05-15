@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for AI operations. */
+
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class AIResponse {
     private String text;
@@ -13,3 +15,6 @@ public class AIResponse {
     private Integer tokensUsed;
     private String requestId;
 }
+
+
+

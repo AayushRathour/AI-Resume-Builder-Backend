@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Exception type for api error response workflow failures. */
 @Getter
 @Setter
 @Builder
@@ -20,3 +21,6 @@ public class ApiErrorResponse {
     private String message;
     private String path;
 }
+
+
+

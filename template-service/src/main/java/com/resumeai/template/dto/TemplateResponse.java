@@ -10,6 +10,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for template operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -30,3 +32,6 @@ public class TemplateResponse {
     private Long usageCount;
     private LocalDateTime createdAt;
 }
+
+
+

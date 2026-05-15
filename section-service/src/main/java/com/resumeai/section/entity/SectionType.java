@@ -1,5 +1,7 @@
 package com.resumeai.section.entity;
 
+/** Enumerates domain-specific state values. */
+
 public enum SectionType {
     SUMMARY,
     EXPERIENCE,
@@ -11,3 +13,5 @@ public enum SectionType {
     VOLUNTEER,
     CUSTOM
 }
+
+

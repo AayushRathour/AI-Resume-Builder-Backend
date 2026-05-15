@@ -31,6 +31,7 @@ import com.resumeai.auth.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/** Exposes REST endpoints for payment workflows. */
 @RestController
 @RequestMapping("/payment")
 @RequiredArgsConstructor
@@ -46,6 +47,9 @@ public class PaymentController {
     @Value("${razorpay.key-secret:}")
     private String razorpayKeySecret;
 
+    /**
+     * Creates a Razorpay order for premium upgrades.
+     */
     @PostMapping("/order")
     public ResponseEntity<PaymentOrderResponse> createOrder(@Valid @RequestBody PaymentOrderRequest request) {
         if (razorpayKeyId == null || razorpayKeyId.isBlank() || razorpayKeySecret == null || razorpayKeySecret.isBlank()) {
@@ -74,6 +78,9 @@ public class PaymentController {
         }
     }
 
+    /**
+     * Verifies payment signature and upgrades the user's subscription.
+     */
     @PostMapping("/verify")
     public ResponseEntity<AuthResponse> verifyPayment(Authentication authentication,
                                                              @Valid @RequestBody PaymentVerifyRequest request) {
@@ -81,6 +88,7 @@ public class PaymentController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
 
+        // Validate Razorpay signature before updating subscription.
         String expectedSignature = hmacSha256(request.getOrderId() + "|" + request.getPaymentId(), razorpayKeySecret);
         if (!expectedSignature.equals(request.getSignature())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Payment verification failed");
@@ -104,6 +112,9 @@ public class PaymentController {
                 .build());
     }
 
+    /**
+     * Computes HMAC SHA-256 signature for Razorpay verification.
+     */
     private String hmacSha256(String data, String secret) {
         if (secret == null) {
             return "";
@@ -123,3 +134,6 @@ public class PaymentController {
         }
     }
 }
+
+
+

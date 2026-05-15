@@ -12,12 +12,15 @@ import com.resumeai.ai.dto.ImproveRequest;
 import com.resumeai.ai.dto.MissingSkillsRequest;
 import com.resumeai.ai.dto.MissingSkillsResponse;
 import com.resumeai.ai.dto.QuotaResponse;
+import com.resumeai.ai.dto.ChatRequest;
 import com.resumeai.ai.dto.ResumeExtractRequest;
 import com.resumeai.ai.dto.ResumeExtractResponse;
 import com.resumeai.ai.dto.SkillRequest;
 import com.resumeai.ai.dto.SummaryRequest;
 import com.resumeai.ai.dto.TailorRequest;
 import com.resumeai.ai.dto.TranslateRequest;
+
+/** Defines the service contract for core business operations. */
 
 public interface AiService {
 
@@ -41,7 +44,10 @@ public interface AiService {
 
     MissingSkillsResponse analyzeMissingSkills(MissingSkillsRequest request);
 
+    AIResponse chat(Long userId, ChatRequest request);
+
     List<AIHistoryResponse> getAiHistory(Long userId);
 
     QuotaResponse getRemainingQuota(Long userId);
 }
+

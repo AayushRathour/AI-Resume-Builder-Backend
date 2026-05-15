@@ -13,6 +13,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * Request rate-limiting filter for high-cost jobmatch endpoints.
+ * Protects analyze and job-search workflows from abuse and burst traffic.
+ */
+
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 

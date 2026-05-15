@@ -12,6 +12,9 @@ import org.springframework.web.client.RestClient;
 
 import com.resumeai.resume.exception.InvalidInputException;
 
+/**
+ * Gemini client for ATS score generation based on resume and job text.
+ */
 @Component
 public class GeminiAtsClient {
 
@@ -32,6 +35,9 @@ public class GeminiAtsClient {
         this.restClient = restClientBuilder.build();
     }
 
+    /**
+     * Calls Gemini to generate a numeric ATS score between 0 and 100.
+     */
     public Double generateAtsScore(String resumeText, String jobDescription) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new InvalidInputException("Gemini API key is not configured");

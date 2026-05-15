@@ -6,9 +6,15 @@ import org.springframework.context.annotation.Configuration;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 
+/**
+ * OpenAPI configuration for resume-service endpoints.
+ */
 @Configuration
 public class OpenApiConfig {
 
+    /**
+     * Defines the OpenAPI document metadata.
+     */
     @Bean
     public OpenAPI resumeServiceOpenApi() {
         return new OpenAPI()

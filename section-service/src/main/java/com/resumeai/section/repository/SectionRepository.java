@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.resumeai.section.entity.Section;
 import com.resumeai.section.entity.SectionType;
 
+/** Repository for persistence and query operations in this domain. */
+
 public interface SectionRepository extends JpaRepository<Section, Long> {
 
     List<Section> findByResumeId(Long resumeId);
@@ -26,3 +28,4 @@ public interface SectionRepository extends JpaRepository<Section, Long> {
 
     void deleteBySectionId(Long sectionId);
 }
+

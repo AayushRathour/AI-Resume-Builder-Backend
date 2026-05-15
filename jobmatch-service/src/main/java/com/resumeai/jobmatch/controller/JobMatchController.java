@@ -26,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+/** Exposes REST endpoints for job matching workflows. */
+
 @RestController
 @RequestMapping({"/jobmatch", "/jobs", "/job-matches"})
 @RequiredArgsConstructor
@@ -43,8 +45,8 @@ public class JobMatchController {
             @RequestParam(required = false) String jobTitle,
             @RequestParam(required = false) String location) {
         
-        // STEP 2: COMPREHENSIVE NULL CHECKS AT CONTROLLER LEVEL
-        System.out.println("STEP 1: File received");
+        // COMPREHENSIVE NULL CHECKS AT CONTROLLER LEVEL
+        log.info("STEP 1: File received");
         log.info("=== /analyze endpoint called ===");
         log.info("resumeId: {}, userId: {}, file: {}", resumeId, userId, file != null ? file.getOriginalFilename() : "null");
         
@@ -74,7 +76,6 @@ public class JobMatchController {
                         "matches", analysis.getMatches())));
         } catch (Exception e) {
             log.error("CRITICAL ERROR in /analyze endpoint", e);
-            e.printStackTrace();
                     return ResponseEntity.status(200).body(java.util.Map.of(
                         "status", "failed",
                         "message", e.getMessage() != null ? e.getMessage() : "AI unavailable"));
@@ -82,9 +83,10 @@ public class JobMatchController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<?> search(@RequestParam String query) {
+    public ResponseEntity<?> search(@RequestParam String query,
+                                    @RequestParam(required = false) String location) {
         log.info("QUERY: {}", query);
-        return ResponseEntity.ok(adzunaService.fetchJobs(query));
+        return ResponseEntity.ok(adzunaService.fetchJobs(query, location));
     }
 
     @GetMapping("/jobs")
@@ -102,7 +104,7 @@ public class JobMatchController {
             @RequestParam(required = false) Long userId,
             @RequestParam(defaultValue = "10") int limit) {
         
-        // STEP 5: Null check for userId
+        // Null check for userId
         if (userId == null || userId <= 0) {
             log.warn("STEP 5: /top endpoint called with invalid userId: {}", userId);
             return ResponseEntity.badRequest().body("ERROR: Valid userId is required");
@@ -116,7 +118,7 @@ public class JobMatchController {
             log.info("STEP 10: /top endpoint called - userId: {}, limit: {}", userId, limit);
             List<MatchResponse> matches = jobMatchService.getTopMatches(userId, limit);
             
-            // STEP 5: Ensure matches is never null
+            // Ensure matches is never null
             if (matches == null) {
                 log.warn("STEP 5: Service returned null matches");
                 matches = new ArrayList<>();
@@ -126,7 +128,6 @@ public class JobMatchController {
             return ResponseEntity.ok(matches);
         } catch (Exception e) {
             log.error("STEP 5: Error in /top endpoint", e);
-            e.printStackTrace();
             return ResponseEntity.ok(new ArrayList<>());
         }
     }
@@ -177,3 +178,6 @@ public class JobMatchController {
         return ResponseEntity.noContent().build();
     }
 }
+
+
+

@@ -1,74 +1,123 @@
 package com.resumeai.section.controller;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.util.List;
 
+import com.resumeai.section.dto.*;
+import com.resumeai.section.entity.SectionType;
+import com.resumeai.section.service.SectionService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
-
-import com.resumeai.section.dto.SectionRequest;
-import com.resumeai.section.dto.SectionResponse;
-import com.resumeai.section.entity.SectionType;
-import com.resumeai.section.service.SectionService;
+import org.springframework.http.ResponseEntity;
 
 @ExtendWith(MockitoExtension.class)
 class SectionControllerTest {
 
-    @Mock
-    private SectionService sectionService;
+    @Mock private SectionService sectionService;
+    @InjectMocks private SectionController sectionController;
 
-    @InjectMocks
-    private SectionController sectionController;
+    private SectionResponse responseDto;
 
-    @Test
-    void addSection_usesAuthHeaderAndBodyContract() {
-        SectionRequest request = SectionRequest.builder()
-                .resumeId(11L)
-                .sectionType(SectionType.SUMMARY)
-                .title("Summary")
-                .content("{}")
-                .displayOrder(1)
-                .isVisible(true)
-                .aiGenerated(false)
-                .build();
-
-        when(sectionService.addSection(any(SectionRequest.class), eq(4L)))
-                .thenReturn(SectionResponse.builder().sectionId(101L).resumeId(11L).build());
-
-        var response = sectionController.addSection(4L, request);
-
-        assertEquals(HttpStatus.CREATED, response.getStatusCode());
-        verify(sectionService).addSection(any(SectionRequest.class), eq(4L));
+    @BeforeEach
+    void setUp() {
+        responseDto = SectionResponse.builder().sectionId(1L).resumeId(10L)
+                .sectionType(SectionType.EXPERIENCE).title("Experience")
+                .displayOrder(1).isVisible(true).aiGenerated(false).build();
     }
 
     @Test
-    void getSectionById_usesRequiredEndpointHandler() {
-        when(sectionService.getSectionById(33L, 8L))
-                .thenReturn(SectionResponse.builder().sectionId(33L).resumeId(12L).build());
+    void addSection() {
+        SectionRequest req = new SectionRequest();
+        when(sectionService.addSection(req, 100L)).thenReturn(responseDto);
 
-        var response = sectionController.getSectionById(33L, 8L);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        verify(sectionService).getSectionById(33L, 8L);
+        ResponseEntity<SectionResponse> resp = sectionController.addSection(100L, req);
+        assertEquals(HttpStatus.CREATED, resp.getStatusCode());
     }
 
     @Test
-    void getSectionsByType_returnsList() {
-        when(sectionService.getSectionsByType(50L, SectionType.EXPERIENCE, 9L))
-                .thenReturn(List.of(SectionResponse.builder().sectionId(1L).resumeId(50L).build()));
+    void getSectionById() {
+        when(sectionService.getSectionById(1L, 100L)).thenReturn(responseDto);
 
-        var response = sectionController.getSectionsByType(50L, SectionType.EXPERIENCE, 9L);
+        ResponseEntity<SectionResponse> resp = sectionController.getSectionById(1L, 100L);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+    }
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        verify(sectionService).getSectionsByType(50L, SectionType.EXPERIENCE, 9L);
+    @Test
+    void getSectionsByResume() {
+        when(sectionService.getSectionsByResume(10L, 100L)).thenReturn(List.of(responseDto));
+
+        ResponseEntity<List<SectionResponse>> resp = sectionController.getSectionsByResume(10L, 100L);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        assertEquals(1, resp.getBody().size());
+    }
+
+    @Test
+    void getSectionsByType() {
+        when(sectionService.getSectionsByType(10L, SectionType.EXPERIENCE, 100L))
+                .thenReturn(List.of(responseDto));
+
+        ResponseEntity<List<SectionResponse>> resp = sectionController.getSectionsByType(10L, SectionType.EXPERIENCE, 100L);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+    }
+
+    @Test
+    void updateSection() {
+        SectionRequest req = new SectionRequest();
+        when(sectionService.updateSection(1L, req, 100L)).thenReturn(responseDto);
+
+        ResponseEntity<SectionResponse> resp = sectionController.updateSection(1L, 100L, req);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+    }
+
+    @Test
+    void reorderSections() {
+        List<SectionReorderItemRequest> reqs = List.of();
+        when(sectionService.reorderSections(10L, reqs, 100L)).thenReturn(List.of(responseDto));
+
+        ResponseEntity<List<SectionResponse>> resp = sectionController.reorderSections(10L, 100L, reqs);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+    }
+
+    @Test
+    void toggleVisibility() {
+        SectionVisibilityRequest visReq = new SectionVisibilityRequest();
+        visReq.setIsVisible(false);
+        when(sectionService.toggleVisibility(1L, false, 100L)).thenReturn(responseDto);
+
+        ResponseEntity<SectionResponse> resp = sectionController.toggleVisibility(1L, 100L, visReq);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+    }
+
+    @Test
+    void bulkUpdateSections() {
+        BulkSectionUpdateRequest bulkReq = new BulkSectionUpdateRequest();
+        bulkReq.setSections(List.of());
+        when(sectionService.bulkUpdateSections(10L, List.of(), 100L)).thenReturn(List.of(responseDto));
+
+        ResponseEntity<List<SectionResponse>> resp = sectionController.bulkUpdateSections(10L, 100L, bulkReq);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+    }
+
+    @Test
+    void deleteSection() {
+        ResponseEntity<Void> resp = sectionController.deleteSection(1L, 100L);
+        assertEquals(HttpStatus.NO_CONTENT, resp.getStatusCode());
+        verify(sectionService).deleteSection(1L, 100L);
+    }
+
+    @Test
+    void deleteAllSections() {
+        ResponseEntity<Void> resp = sectionController.deleteAllSections(10L, 100L);
+        assertEquals(HttpStatus.NO_CONTENT, resp.getStatusCode());
+        verify(sectionService).deleteAllSections(10L, 100L);
     }
 }

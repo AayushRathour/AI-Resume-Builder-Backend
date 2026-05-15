@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for missing skills operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,3 +17,6 @@ public class MissingSkillsResponse {
     private String missingSkills;
     private String recommendations;
 }
+
+
+

@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for subscription update operations. */
 @Getter
 @Setter
 @Builder
@@ -17,3 +18,6 @@ public class SubscriptionUpdateRequest {
     @NotBlank(message = "Plan is required")
     private String plan;
 }
+
+
+

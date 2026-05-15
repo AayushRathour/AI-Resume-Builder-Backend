@@ -6,8 +6,7 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import java.util.*;
 
 /**
- * Wraps an HttpServletRequest to allow adding custom headers
- * (e.g. X-User-Email, X-User-Id) before forwarding to downstream services.
+ * Request wrapper that injects gateway-generated identity headers.
  */
 public class MutableHttpServletRequest extends HttpServletRequestWrapper {
 
@@ -17,6 +16,9 @@ public class MutableHttpServletRequest extends HttpServletRequestWrapper {
         super(request);
     }
 
+    /**
+     * Adds a synthetic header for downstream service consumption.
+     */
     public void addHeader(String name, String value) {
         customHeaders.put(name, value);
     }

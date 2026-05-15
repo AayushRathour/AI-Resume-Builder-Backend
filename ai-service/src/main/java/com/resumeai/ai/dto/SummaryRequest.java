@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for summary operations. */
+
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class SummaryRequest {
     private String jobTitle;
@@ -13,3 +15,6 @@ public class SummaryRequest {
     private String keySkills;
     private String additionalContext;
 }
+
+
+

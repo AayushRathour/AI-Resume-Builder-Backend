@@ -28,14 +28,18 @@ public class CorsConfig {
     public FilterRegistrationBean<CorsFilter> corsFilterRegistration() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
-        config.addAllowedOrigin("http://localhost:3000"); // EXACTLY ONE origin — no trailing space/comma
+        config.addAllowedOrigin("http://localhost:3000");
+        config.addAllowedOrigin("http://localhost:5173"); // Vite dev server
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");
         config.addExposedHeader("Content-Disposition"); // needed for file downloads
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        // Apply gateway-level CORS to REST APIs only.
+        // WebSocket SockJS endpoint (/ws-notifications/**) is CORS-handled by notification-service
+        // to avoid duplicate Access-Control-Allow-Origin headers.
+        source.registerCorsConfiguration("/api/**", config);
 
         FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(new CorsFilter(source));
         bean.setOrder(Ordered.HIGHEST_PRECEDENCE); // MUST run before JwtAuthFilter

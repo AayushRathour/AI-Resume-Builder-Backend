@@ -19,6 +19,8 @@ import com.resumeai.template.service.TemplateService;
 
 import lombok.RequiredArgsConstructor;
 
+/** Exposes REST endpoints for template workflows. */
+
 @RestController
 @RequestMapping("/templates")
 @RequiredArgsConstructor
@@ -94,3 +96,6 @@ public class TemplateController {
         return ResponseEntity.ok(templateService.getPremiumTemplates());
     }
 }
+
+
+

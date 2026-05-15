@@ -5,6 +5,8 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+/** Persistent entity used by this service domain. */
+
 @Entity
 @Table(name = "jobs")
 @Getter
@@ -44,3 +46,4 @@ public class Job {
         this.createdAt = LocalDateTime.now();
     }
 }
+

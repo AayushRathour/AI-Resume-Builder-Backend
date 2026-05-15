@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for message operations. */
 @Getter
 @Setter
 @Builder
@@ -15,3 +16,6 @@ public class MessageResponse {
 
     private String message;
 }
+
+
+

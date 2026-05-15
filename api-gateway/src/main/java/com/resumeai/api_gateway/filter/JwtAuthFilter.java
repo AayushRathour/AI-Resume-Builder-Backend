@@ -10,22 +10,22 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Servlet filter applied at the Gateway level.
- *
- * - Skips /api/auth/** (public login/register endpoints)
- * - Skips OPTIONS preflight requests
- * - For all other routes: validates the Bearer JWT and forwards
- * X-User-Email and X-User-Id headers to downstream services.
+ * Gateway JWT filter that validates tokens and forwards identity headers.
+ * Used for centralized auth enforcement before routing to services.
  */
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
@@ -35,11 +35,26 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Value("${jwt.secret}")
     private String secret;
 
+    @Value("${app.auth-service.base-url:http://localhost:8081}")
+    private String authServiceBaseUrl;
+
+    @Value("${app.auth-service.fallback-base-urls:http://auth-service}")
+    private String authServiceFallbackBaseUrls;
+
+    private final RestClient restClient;
+
+    public JwtAuthFilter(RestClient.Builder restClientBuilder) {
+        this.restClient = restClientBuilder.build();
+    }
+
     // ── Paths that bypass JWT validation ─────────────────────────────────────
 
     private static final List<String> PUBLIC_EXACT_PATHS = List.of(
             "/api/v1/auth/login",
             "/api/v1/auth/register",
+            "/api/v1/auth/verify-otp",
+            "/api/v1/auth/send-otp",
+            "/api/v1/auth/resend-otp",
             "/api/v1/resumes/public");
 
     private static final List<String> PUBLIC_PREFIXES = List.of(
@@ -47,27 +62,48 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "/api/v1/export/file/", // file downloads are direct browser navigation — no JWT possible
             "/oauth2/",
             "/login/", // covers /login/oauth2/code/google OAuth callback
+            "/ws-notifications/",
+            "/ws-notifications",
+            "/topic/",
+            "/app/",
             "/actuator/");
 
+    /**
+     * Defines public routes and preflight requests that bypass JWT validation.
+     */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getServletPath();
         String method = request.getMethod();
-        // Skip auth routes, oauth callback routes, and OPTIONS preflight
-        return "OPTIONS".equalsIgnoreCase(method)
+        boolean bypass = "OPTIONS".equalsIgnoreCase(method)
                 || PUBLIC_EXACT_PATHS.contains(path)
                 || PUBLIC_PREFIXES.stream().anyMatch(path::startsWith);
+        log.info("shouldNotFilter check: path={}, method={}, result={}", path, method, bypass);
+        return bypass;
     }
 
     // ── Core filter logic ─────────────────────────────────────────────────────
 
+    /**
+     * Validates JWT, checks session via auth-service, and forwards identity headers.
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request,
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
 
         String path = request.getRequestURI();
+        log.info("doFilterInternal path={}", path);
         
+        // Fallback: also skip WebSocket/STOMP paths based on URI (getServletPath may differ)
+        if (path.contains("/ws-notifications") ||
+            path.startsWith("/topic/") ||
+            path.startsWith("/app/")) {
+            log.info("Bypassing JWT for WebSocket path={}", path);
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (path.contains("/swagger") || 
             path.contains("/v3/api-docs") || 
             path.contains("/webjars")) {
@@ -98,7 +134,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String role = extractRole(claims);
         String plan = extractPlan(claims);
 
-        // Wrap request to inject extra headers into the downstream call
+        // Validate session against auth-service for revoked/deleted accounts.
+        if (!isSessionActive(token)) {
+            sendUnauthorized(response, "Session invalid or account removed");
+            return;
+        }
+
+        // Inject identity headers for downstream services.
         MutableHttpServletRequest mutableRequest = new MutableHttpServletRequest(request);
         if (email != null)
             mutableRequest.addHeader("X-User-Email", email);
@@ -158,5 +200,66 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private String extractPlan(Claims claims) {
         Object raw = claims.get("subscriptionPlan");
         return raw != null ? String.valueOf(raw) : null;
+    }
+
+    /**
+     * Verifies token still maps to an active account in auth-service.
+     */
+    private boolean isSessionActive(String token) {
+        for (String baseUrl : getAuthServiceBaseUrls()) {
+            try {
+                HttpStatusCode status = restClient.get()
+                        .uri(baseUrl + "/auth/profile")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .retrieve()
+                        .toBodilessEntity()
+                        .getStatusCode();
+
+                if (status.is2xxSuccessful()) {
+                    return true;
+                }
+            } catch (Exception ex) {
+                log.warn("Session validation failed via auth-service baseUrl={}: {}", baseUrl, ex.getMessage());
+            }
+        }
+
+        return false;
+    }
+
+    private List<String> getAuthServiceBaseUrls() {
+        List<String> urls = new ArrayList<>();
+
+        String primary = normalizeBaseUrl(authServiceBaseUrl);
+        if (primary != null) {
+            urls.add(primary);
+        }
+
+        if (authServiceFallbackBaseUrls != null && !authServiceFallbackBaseUrls.isBlank()) {
+            for (String value : authServiceFallbackBaseUrls.split(",")) {
+                String normalized = normalizeBaseUrl(value);
+                if (normalized != null && !urls.contains(normalized)) {
+                    urls.add(normalized);
+                }
+            }
+        }
+
+        return urls;
+    }
+
+    private String normalizeBaseUrl(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+
+        if (trimmed.endsWith("/")) {
+            return trimmed.substring(0, trimmed.length() - 1);
+        }
+
+        return trimmed;
     }
 }

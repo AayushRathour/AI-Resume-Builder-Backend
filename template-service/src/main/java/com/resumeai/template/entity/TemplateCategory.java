@@ -1,5 +1,7 @@
 package com.resumeai.template.entity;
 
+/** Enumerates domain-specific state values. */
+
 public enum TemplateCategory {
     PROFESSIONAL,
     MODERN,
@@ -7,3 +9,5 @@ public enum TemplateCategory {
     ATS_OPTIMISED,
     MINIMALIST
 }
+
+

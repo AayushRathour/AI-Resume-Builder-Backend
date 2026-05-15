@@ -10,10 +10,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
 @FeignClient(
-        name = "ai-service",
-        url = "${services.ai.base-url:http://localhost:8085}",
-        fallback = AiServiceClientFallback.class
+    name = "ai-service",
+    fallback = AiServiceClientFallback.class
 )
+
+/** Feign client for synchronous calls to AI service APIs. */
 public interface AiServiceClient {
 
     @PostMapping("/api/ai/resume-extract")
@@ -22,3 +23,7 @@ public interface AiServiceClient {
     @PostMapping("/api/ai/missing-skills")
     AiServiceResponse<MissingSkillsResponse> analyzeMissingSkills(@RequestBody MissingSkillsRequest request);
 }
+
+
+
+

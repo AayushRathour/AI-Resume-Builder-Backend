@@ -3,6 +3,8 @@ package com.resumeai.section.client;
 import lombok.Getter;
 import lombok.Setter;
 
+/** Payload model used when reading resume visibility metadata from resume-service. */
+
 @Getter
 @Setter
 public class ResumePayload {
@@ -11,3 +13,7 @@ public class ResumePayload {
     private Long userId;
     private Boolean isPublic;
 }
+
+
+
+

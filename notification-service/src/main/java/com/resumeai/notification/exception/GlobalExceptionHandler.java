@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/** Centralized exception handler for consistent API error responses. */
+
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
@@ -61,3 +63,4 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(body, status);
     }
 }
+

@@ -5,6 +5,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 
+/** Application entry point for jobmatch-service. */
+
 @SpringBootApplication
 @EnableDiscoveryClient
 @EnableFeignClients
@@ -16,3 +18,6 @@ public class JobmatchServiceApplication {
 	}
 
 }
+
+
+

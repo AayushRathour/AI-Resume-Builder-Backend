@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/** Response payload for gemini extraction operations. */
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -23,3 +25,6 @@ public class GeminiExtractionResponse {
 
     private List<String> keywords;
 }
+
+
+

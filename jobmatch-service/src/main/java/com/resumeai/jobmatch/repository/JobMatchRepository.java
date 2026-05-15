@@ -10,10 +10,12 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.UUID;
 
+/** Repository for persistence and query operations in this domain. */
+
 @Repository
 public interface JobMatchRepository extends JpaRepository<JobMatch, UUID> {
 
-    // STEP 6: Explicit query methods with @Query annotations
+    // Explicit query methods with @Query annotations
     
     @Query("SELECT j FROM JobMatch j WHERE j.userId = :userId ORDER BY j.matchScore DESC, j.createdAt DESC")
     List<JobMatch> findByUserIdOrderByMatchScoreDescCreatedAtDesc(@Param("userId") Long userId);
@@ -26,3 +28,4 @@ public interface JobMatchRepository extends JpaRepository<JobMatch, UUID> {
 
     void deleteByUserIdAndResumeId(Long userId, Long resumeId);
 }
+

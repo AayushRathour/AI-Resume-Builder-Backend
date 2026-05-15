@@ -1,5 +1,7 @@
 package com.resumeai.jobmatch.exception;
 
+/** Exception type for resource not found workflow failures. */
+
 public class ResourceNotFoundException extends RuntimeException {
 
     public ResourceNotFoundException(String message) {
@@ -10,3 +12,6 @@ public class ResourceNotFoundException extends RuntimeException {
         super(resource + " not found with id: " + id);
     }
 }
+
+
+

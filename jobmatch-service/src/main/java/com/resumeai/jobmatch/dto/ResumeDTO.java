@@ -2,6 +2,8 @@ package com.resumeai.jobmatch.dto;
 
 import lombok.*;
 
+/** DTO for structured resume data exchange across services. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,3 +17,6 @@ public class ResumeDTO {
     private String targetJobTitle;
     private String sectionsJson;
 }
+
+
+

@@ -8,6 +8,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for template operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -25,3 +27,6 @@ public class TemplateRequest {
     private boolean isPremium;
     private Boolean isActive;
 }
+
+
+

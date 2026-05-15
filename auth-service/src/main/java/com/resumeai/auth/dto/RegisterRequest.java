@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for register operations. */
 @Getter
 @Setter
 @Builder
@@ -18,3 +19,6 @@ public class RegisterRequest {
 
     private String phone;
 }
+
+
+

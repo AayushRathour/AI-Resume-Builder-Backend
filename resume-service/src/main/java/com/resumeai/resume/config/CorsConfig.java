@@ -8,8 +8,8 @@ package com.resumeai.resume.config;
  * (once from the gateway, once from this service), which browsers
  * reject with ERR_FAILED / CORS policy errors.
  *
- * This class intentionally left with no CORS beans.
+ * This interface intentionally left with no CORS beans.
  */
-public class CorsConfig {
+public interface CorsConfig {
     // intentionally empty — CORS handled by api-gateway only
 }

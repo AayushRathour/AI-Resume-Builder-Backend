@@ -9,6 +9,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for section reorder item operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -23,3 +25,6 @@ public class SectionReorderItemRequest {
     @JsonAlias("orderIndex")
     private Integer displayOrder;
 }
+
+
+

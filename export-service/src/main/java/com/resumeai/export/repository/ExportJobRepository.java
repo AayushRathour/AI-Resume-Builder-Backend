@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+/** Repository for persistence and query operations in this domain. */
+
 public interface ExportJobRepository extends JpaRepository<ExportJobRecord, UUID> {
 
     List<ExportJobRecord> findByUserIdOrderByRequestedAtDesc(Long userId);
@@ -13,3 +15,4 @@ public interface ExportJobRepository extends JpaRepository<ExportJobRecord, UUID
 
     long countByUserIdAndStatus(Long userId, String status);
 }
+

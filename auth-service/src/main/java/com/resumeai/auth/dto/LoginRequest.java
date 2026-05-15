@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for login operations. */
 @Getter
 @Setter
 @Builder
@@ -15,3 +16,6 @@ public class LoginRequest {
     private String email;
     private String password;
 }
+
+
+

@@ -11,6 +11,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
+/** Provides supporting resume structuring operations for workflow execution. */
+
 @Service
 public class ResumeStructuringService {
 
@@ -91,7 +93,7 @@ public class ResumeStructuringService {
                     return keywords.stream().anyMatch(lower::contains);
                 })
                 .limit(8)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private String buildSummary(String normalizedText) {
@@ -101,3 +103,6 @@ public class ResumeStructuringService {
         return normalizedText.length() <= 350 ? normalizedText : normalizedText.substring(0, 350);
     }
 }
+
+
+

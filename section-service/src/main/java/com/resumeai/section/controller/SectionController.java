@@ -26,6 +26,8 @@ import com.resumeai.section.service.SectionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/** Exposes REST endpoints for section workflows. */
+
 @RestController
 @RequestMapping("/sections")
 @RequiredArgsConstructor
@@ -111,3 +113,6 @@ public class SectionController {
         return ResponseEntity.noContent().build();
     }
 }
+
+
+

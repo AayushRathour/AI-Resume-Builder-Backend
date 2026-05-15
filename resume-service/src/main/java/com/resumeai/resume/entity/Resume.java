@@ -21,6 +21,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * Resume aggregate storing core content, status, and visibility flags.
+ */
 @Entity
 @Table(
     name = "resumes",
@@ -30,6 +33,8 @@ import lombok.Setter;
         @Index(name = "idx_resumes_is_public", columnList = "is_public"),
         @Index(name = "idx_resumes_target_job_title", columnList = "target_job_title")
     })
+
+/** Persistence entity representing domain data in the service database. */
 @Getter
 @Setter
 @NoArgsConstructor

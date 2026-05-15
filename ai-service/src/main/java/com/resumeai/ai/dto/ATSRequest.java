@@ -6,8 +6,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for ATS operations. */
+
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class ATSRequest {
     private String resumeContent;
     private String jobDescription;
 }
+
+
+

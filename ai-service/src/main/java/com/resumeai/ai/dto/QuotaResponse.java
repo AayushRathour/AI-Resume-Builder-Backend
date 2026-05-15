@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for quota operations. */
+
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class QuotaResponse {
     private Long userId;
@@ -17,3 +19,6 @@ public class QuotaResponse {
     private long remainingCalls;
     private long remainingAtsChecks;
 }
+
+
+

@@ -2,14 +2,7 @@ package com.resumeai.export.dto;
 
 import lombok.*;
 
-/**
- * Mirrors template-service TemplateResponse.
- * Field names must match JSON keys returned by GET /api/templates/{id}.
- *
- * NOTE: template-service does not expose htmlContent or cssContent.
- * ExportServiceImpl falls back to built-in default CSS when this DTO
- * has no styling information.
- */
+/** DTO for structured template data exchange across services. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -26,3 +19,6 @@ public class TemplateDTO {
     private String previewImageUrl;
     private Boolean isPremium;
 }
+
+
+

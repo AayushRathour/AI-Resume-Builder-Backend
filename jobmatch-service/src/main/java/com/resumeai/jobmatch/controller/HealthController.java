@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
+/** Exposes health and readiness endpoints for jobmatch-service. */
+
 @RestController
 public class HealthController {
 

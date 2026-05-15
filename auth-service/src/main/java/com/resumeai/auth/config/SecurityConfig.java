@@ -18,6 +18,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+/** Security configuration for authentication and authorization in auth-service. */
 @Configuration
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -27,10 +28,13 @@ public class SecurityConfig {
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
 
+    /**
+     * Configures request authorization, JWT filter, and OAuth2 handlers.
+     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .cors(AbstractHttpConfigurer::disable) // CORS handled by API-Gateway — disabling here prevents
+                .cors(AbstractHttpConfigurer::disable) // CORS handled by API-Gateway  disabling here prevents
                                                        // duplicate headers
                 .csrf(AbstractHttpConfigurer::disable)
                 // OAuth2 requires session to preserve the state/nonce parameter across the
@@ -44,6 +48,9 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/auth/register",
                                 "/auth/login",
+                                "/auth/send-otp",
+                                "/auth/verify-otp",
+                                "/auth/resend-otp",
                                 "/payment/**", // payment order creation is public (JWT validated at gateway)
                                 "/oauth2/**", // triggers Spring's OAuth2 authorization redirect
                                 "/login/**", // covers /login/oauth2/code/google callback from Google

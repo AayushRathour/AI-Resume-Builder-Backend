@@ -10,18 +10,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * RabbitMQ producer configuration for jobmatch-service.
- * Declares the shared notification exchange only (queues owned by notification-service).
- */
+/** RabbitMQ configuration for exchanges, queues, bindings, and routing in jobmatch-service. */
 @Configuration
 public class RabbitMQConfig {
 
-    @Value("${rabbitmq.exchange}")
+    @Value("${rabbitmq.exchange:resumeai.exchange}")
     private String exchange;
 
     @Bean
-    public TopicExchange notificationExchange() {
+    public TopicExchange resumeaiExchange() {
         return ExchangeBuilder.topicExchange(exchange).durable(true).build();
     }
 

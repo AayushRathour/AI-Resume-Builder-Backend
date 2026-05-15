@@ -1,5 +1,8 @@
 package com.resumeai.auth.controller;
 
+import com.resumeai.auth.client.AiServiceClient;
+import com.resumeai.auth.client.ResumeServiceClient;
+import com.resumeai.auth.client.TemplateServiceClient;
 import com.resumeai.auth.dto.MessageResponse;
 import com.resumeai.auth.dto.UserProfileResponse;
 import com.resumeai.auth.service.AuthService;
@@ -9,8 +12,6 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,7 +22,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestClient;
+
+/** Exposes REST endpoints for administration workflows. */
 
 @RestController
 @RequestMapping("/admin")
@@ -30,32 +32,45 @@ import org.springframework.web.client.RestClient;
 public class AdminController {
 
     private final AuthService authService;
-    private final RestClient.Builder restClientBuilder;
+    private final TemplateServiceClient templateServiceClient;
+    private final AiServiceClient aiServiceClient;
+    private final ResumeServiceClient resumeServiceClient;
 
-    @Value("${app.template-service.base-url}")
-    private String templateServiceBaseUrl;
-
-    @Value("${app.ai-service.base-url}")
-    private String aiServiceBaseUrl;
-
-    @Value("${app.resume-service.base-url}")
-    private String resumeServiceBaseUrl;
-
+    /**
+     * Lists all users for admin management.
+     */
     @GetMapping("/users")
     public ResponseEntity<List<UserProfileResponse>> getUsers() {
         return ResponseEntity.ok(authService.getAllUsers());
     }
 
+    /**
+     * Promotes a user to admin role.
+     */
     @PutMapping("/users/{id}/upgrade")
     public ResponseEntity<UserProfileResponse> upgradeUser(@PathVariable("id") Long userId) {
         return ResponseEntity.ok(authService.upgradeUserToAdmin(userId));
     }
 
+    /**
+     * Suspends a user account.
+     */
     @PutMapping("/users/{id}/suspend")
     public ResponseEntity<UserProfileResponse> suspendUser(@PathVariable("id") Long userId) {
         return ResponseEntity.ok(authService.suspendUser(userId));
     }
 
+    /**
+     * Restores a previously suspended or deleted account.
+     */
+    @PutMapping("/users/{id}/restore")
+    public ResponseEntity<UserProfileResponse> restoreUser(@PathVariable("id") Long userId) {
+        return ResponseEntity.ok(authService.restoreUser(userId));
+    }
+
+    /**
+     * Updates subscription plan for a specific user.
+     */
     @PutMapping("/users/{id}/subscription")
     public ResponseEntity<UserProfileResponse> updateSubscription(@PathVariable("id") Long userId,
                                                                   @RequestBody Map<String, String> payload) {
@@ -63,43 +78,46 @@ public class AdminController {
         return ResponseEntity.ok(authService.updateSubscriptionByUserId(userId, plan));
     }
 
+    /**
+     * Deletes a user account (soft delete).
+     */
     @DeleteMapping("/users/{id}")
     public ResponseEntity<MessageResponse> deleteUser(@PathVariable("id") Long userId) {
         authService.deleteUserById(userId);
         return ResponseEntity.ok(new MessageResponse("User deleted successfully"));
     }
 
+    /**
+     * Fetches template list from template-service.
+     */
     @GetMapping("/templates")
     public ResponseEntity<List<Map<String, Object>>> getTemplates() {
-        List<Map<String, Object>> templates = templateClient().get()
-                .retrieve()
-                .body(new ParameterizedTypeReference<>() {});
-
+        List<Map<String, Object>> templates = templateServiceClient.getTemplates();
         return ResponseEntity.ok(templates == null ? List.of() : templates);
     }
 
+    /**
+     * Creates a new template via template-service.
+     */
     @PostMapping("/templates")
     public ResponseEntity<Map<String, Object>> createTemplate(@RequestBody Map<String, Object> payload) {
-        Map<String, Object> created = templateClient().post()
-                .body(payload)
-                .retrieve()
-                .body(new ParameterizedTypeReference<>() {});
-
+        Map<String, Object> created = templateServiceClient.createTemplate(payload);
         return ResponseEntity.status(HttpStatus.CREATED).body(created == null ? Map.of() : created);
     }
 
+    /**
+     * Updates an existing template via template-service.
+     */
     @PutMapping("/templates/{id}")
     public ResponseEntity<Map<String, Object>> updateTemplate(@PathVariable("id") Long id,
                                                                @RequestBody Map<String, Object> payload) {
-        Map<String, Object> updated = templateClient().put()
-                .uri("/{id}", id)
-                .body(payload)
-                .retrieve()
-                .body(new ParameterizedTypeReference<>() {});
-
+        Map<String, Object> updated = templateServiceClient.updateTemplate(id, payload);
         return ResponseEntity.ok(updated == null ? Map.of() : updated);
     }
 
+    /**
+     * Provides high-level platform analytics for admin dashboards.
+     */
     @GetMapping("/analytics")
     public ResponseEntity<Map<String, Object>> getAnalytics() {
         List<UserProfileResponse> users = authService.getAllUsers();
@@ -121,6 +139,9 @@ public class AdminController {
         return ResponseEntity.ok(analytics);
     }
 
+    /**
+     * Provides summarized metrics for the admin dashboard.
+     */
     @GetMapping("/dashboard")
     public ResponseEntity<Map<String, Object>> getDashboard() {
         List<UserProfileResponse> users = authService.getAllUsers();
@@ -140,6 +161,9 @@ public class AdminController {
         return ResponseEntity.ok(dashboard);
     }
 
+    /**
+     * Aggregates AI usage statistics for admin monitoring.
+     */
     @GetMapping("/ai-usage")
     public ResponseEntity<Map<String, Object>> getAiUsage() {
         List<UserProfileResponse> users = authService.getAllUsers();
@@ -148,15 +172,10 @@ public class AdminController {
         long totalRequests = 0;
         List<Map<String, Object>> perUser = new ArrayList<>();
 
-        RestClient aiClient = aiClient();
         for (UserProfileResponse user : users) {
             try {
-                List<Map<String, Object>> history = aiClient.get()
-                        .uri("/history/{userId}", user.getUserId())
-                        .retrieve()
-                        .body(new ParameterizedTypeReference<>() {});
-
-                int requests = history == null ? 0 : history.size();
+                Map<String, Object> history = aiServiceClient.getUserHistory(user.getUserId());
+                int requests = aiServiceClient.extractHistoryCount(history);
                 totalRequests += requests;
                 if (requests > 0) {
                     usersWithUsage++;
@@ -180,11 +199,12 @@ public class AdminController {
         return ResponseEntity.ok(usage);
     }
 
+    /**
+     * Template-service lookup with fallback to empty results.
+     */
     private List<Map<String, Object>> fetchTemplatesSafely() {
         try {
-            List<Map<String, Object>> templates = templateClient().get()
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<>() {});
+            List<Map<String, Object>> templates = templateServiceClient.getTemplates();
             return templates == null ? List.of() : templates;
         } catch (Exception ex) {
             log.warn("Failed to fetch templates for analytics: {}", ex.getMessage());
@@ -192,26 +212,19 @@ public class AdminController {
         }
     }
 
+    /**
+     * Resume count lookup with fallback to zero.
+     */
     private long fetchResumesSafely() {
         try {
-            // Assume resume-service /api/resumes/count returns a Long or /api/resumes returns list of resumes. 
-            // We fetch the count if possible, but for safety against unknown APIs, we might just get all or hit a stats endpoint.
-            // According to standard CRUD, GET / returns a list.
-            List<Map<String, Object>> resumes = restClientBuilder.baseUrl(resumeServiceBaseUrl).build().get()
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<>() {});
-            return resumes == null ? 0 : resumes.size();
+            Long count = resumeServiceClient.countResumes(true);
+            return count == null ? 0 : count;
         } catch (Exception ex) {
             log.warn("Failed to fetch resumes for analytics: {}", ex.getMessage());
-            return 0; // Return 0 if there's no such endpoint
+            return 0;
         }
     }
-
-    private RestClient templateClient() {
-        return restClientBuilder.baseUrl(templateServiceBaseUrl).build();
-    }
-
-    private RestClient aiClient() {
-        return restClientBuilder.baseUrl(aiServiceBaseUrl).build();
-    }
 }
+
+
+

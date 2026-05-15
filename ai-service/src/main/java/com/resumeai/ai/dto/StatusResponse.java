@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for status operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -16,3 +18,6 @@ public class StatusResponse<T> {
     private String message;
     private T data;
 }
+
+
+

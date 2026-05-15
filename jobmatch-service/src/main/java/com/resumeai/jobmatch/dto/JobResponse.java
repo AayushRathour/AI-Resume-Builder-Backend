@@ -5,6 +5,8 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+/** Response payload for job operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -21,3 +23,6 @@ public class JobResponse {
     private JobSource source;
     private LocalDateTime createdAt;
 }
+
+
+

@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for payment order operations. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -24,3 +25,6 @@ public class PaymentOrderRequest {
     @NotBlank(message = "Plan is required")
     private String plan;
 }
+
+
+

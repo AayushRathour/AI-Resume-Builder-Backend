@@ -8,6 +8,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for ATS operations. */
+
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class ATSResponse {
     private int score;
@@ -15,3 +17,6 @@ public class ATSResponse {
     private String recommendations;
     private String requestId;
 }
+
+
+

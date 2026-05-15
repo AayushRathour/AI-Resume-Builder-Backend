@@ -13,6 +13,11 @@ import com.resumeai.template.repository.TemplateRepository;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * Seeds and repairs default template metadata during service startup.
+ * Keeps baseline templates available for template-service workflows.
+ */
+
 @Component
 @RequiredArgsConstructor
 public class TemplateDataSeeder implements CommandLineRunner {
@@ -24,7 +29,7 @@ public class TemplateDataSeeder implements CommandLineRunner {
     @Override
     public void run(String... args) {
 
-        // ── Step 1: Ensure all existing templates are active ──────────────────
+        // Step 1: Ensure existing templates are active and structurally valid.
         List<Template> allTemplates = templateRepository.findAll();
         int activated = 0;
         for (Template t : allTemplates) {
@@ -50,7 +55,7 @@ public class TemplateDataSeeder implements CommandLineRunner {
             log.info("Activated/repaired {} existing templates", activated);
         }
 
-        // ── Step 2: Seed default templates if not already present ─────────────
+        // Step 2: Insert baseline templates when they do not already exist.
         List<Template> defaultTemplates = List.of(
                 Template.builder()
                         .name("Professional Clean")
@@ -115,7 +120,7 @@ public class TemplateDataSeeder implements CommandLineRunner {
         if (inserted > 0) {
             log.info("Seeded {} new default templates. Total active templates: {}", inserted, totalActive);
         } else {
-            log.info("Template seeder: {} active templates already in DB — no seeding needed", totalActive);
+            log.info("Template seeder: {} active templates already in DB; no seeding needed", totalActive);
         }
     }
 }

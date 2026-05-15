@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 import com.resumeai.jobmatch.entity.JobSource;
 
+/** Response payload for job matching operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -29,3 +31,6 @@ public class MatchResponse {
     private boolean isBookmarked;
     private LocalDateTime createdAt;
 }
+
+
+

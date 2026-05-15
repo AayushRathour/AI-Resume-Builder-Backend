@@ -11,6 +11,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for section operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -39,3 +41,6 @@ public class SectionRequest {
     @NotNull(message = "AI generated flag is required")
     private Boolean aiGenerated;
 }
+
+
+

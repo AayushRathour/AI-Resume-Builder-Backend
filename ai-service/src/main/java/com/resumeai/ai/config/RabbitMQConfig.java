@@ -10,10 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * RabbitMQ producer configuration for ai-service.
- * Declares the shared notification exchange only (queues owned by notification-service).
- */
+/** RabbitMQ configuration for exchanges, queues, bindings, and routing in ai-service. */
 @Configuration
 public class RabbitMQConfig {
 

@@ -7,6 +7,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * Request payload for AI-based ATS scoring.
+ */
 @Getter
 @Setter
 @NoArgsConstructor

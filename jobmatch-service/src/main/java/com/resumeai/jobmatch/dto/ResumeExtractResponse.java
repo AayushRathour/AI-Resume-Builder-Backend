@@ -7,6 +7,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for resume extract operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -18,3 +20,6 @@ public class ResumeExtractResponse {
     private String experience;
     private List<String> keywords;
 }
+
+
+

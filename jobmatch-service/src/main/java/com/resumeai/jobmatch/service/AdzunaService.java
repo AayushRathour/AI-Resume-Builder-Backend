@@ -18,6 +18,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+/** Provides supporting adzuna operations for workflow execution. */
+
 @Service
 @Slf4j
 public class AdzunaService {
@@ -26,36 +28,62 @@ public class AdzunaService {
     private final JobRepository jobRepository;
     private final String appId;
     private final String appKey;
+    private final RestTemplate restTemplate;
     private static final String ADZUNA_API_BASE = "https://api.adzuna.com/v1/api/jobs/in/search/1";
 
     public AdzunaService(ObjectMapper objectMapper,
                         JobRepository jobRepository,
-                        @Value("${adzuna.app.id:bc48dc28}") String appId,
-                        @Value("${adzuna.app.key:5ce9ed62d4226f784186e845504e98c4}") String appKey) {
+                        @Value("${adzuna.app.id:}") String appId,
+                        @Value("${adzuna.app.key:}") String appKey,
+                        @org.springframework.beans.factory.annotation.Autowired(required = false) org.springframework.boot.web.client.RestTemplateBuilder restTemplateBuilder) {
         this.objectMapper = objectMapper;
         this.jobRepository = jobRepository;
         this.appId = appId;
         this.appKey = appKey;
+        this.restTemplate = restTemplateBuilder != null ? restTemplateBuilder.build() : new RestTemplate();
     }
 
     public List<Map<String, Object>> fetchJobs(String query) {
+        return fetchJobs(query, null);
+    }
+
+    public List<Map<String, Object>> fetchJobs(String query, String location) {
         String safeQuery = query == null || query.isBlank() ? "software developer" : query.trim();
-        System.out.println("QUERY: " + safeQuery);
+        String safeLocation = location == null ? "" : location.trim();
+        if (appId == null || appId.isBlank() || appKey == null || appKey.isBlank()) {
+            log.warn("[ADZUNA] API credentials missing. appId/appKey not configured.");
+            return new ArrayList<>();
+        }
+        return fetchJobsInternal(safeQuery, safeLocation, true);
+    }
+
+    private List<Map<String, Object>> fetchJobsInternal(String safeQuery, String safeLocation, boolean allowLocationRetry) {
+        log.info("[ADZUNA] QUERY: {}", safeQuery);
         String url = ADZUNA_API_BASE
                 + "?app_id=" + appId
                 + "&app_key=" + appKey
                 + "&what=" + encodeUrl(safeQuery)
-                + "&results_per_page=20";
-
-        RestTemplate restTemplate = new RestTemplate();
-        ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
-
-        System.out.println("Adzuna Response: " + response.getBody());
+                + "&results_per_page=20"
+                + (safeLocation.isBlank() ? "" : "&where=" + encodeUrl(safeLocation));
+        String responseBody;
+        try {
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+            responseBody = response.getBody();
+        } catch (Exception ex) {
+            log.warn("[ADZUNA] Request failed for query='{}', location='{}'. Returning empty result. Cause: {}",
+                    safeQuery, safeLocation, ex.getMessage());
+            return new ArrayList<>();
+        }
+        log.debug("[ADZUNA] Response received, length={}", responseBody != null ? responseBody.length() : 0);
 
         List<Map<String, Object>> jobs = new ArrayList<>();
 
+        if (responseBody == null || responseBody.isBlank()) {
+            return jobs;
+        }
+
         try {
-            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode root = objectMapper.readTree(responseBody);
             JsonNode results = root.get("results");
 
             if (results != null && results.isArray()) {
@@ -66,13 +94,13 @@ public class AdzunaService {
                     Map<String, Object> dto = new HashMap<>();
                     String title = job.path("title").asText("Untitled Job");
                     String company = job.path("company").path("display_name").asText("Unknown");
-                    String location = job.path("location").path("display_name").asText("Unknown");
+                    String jobLocation = job.path("location").path("display_name").asText("Unknown");
                     String urlValue = job.path("redirect_url").asText("");
                     String description = job.path("description").asText("");
 
                     dto.put("title", title);
                     dto.put("company", company);
-                    dto.put("location", location);
+                    dto.put("location", jobLocation);
                     dto.put("url", urlValue);
                     dto.put("description", description);
                     dto.put("source", "ADZUNA");
@@ -81,7 +109,7 @@ public class AdzunaService {
                     persistedJobs.add(Job.builder()
                             .title(title)
                             .company(company)
-                            .location(location)
+                            .location(jobLocation)
                             .description(description)
                             .requiredSkills("")
                             .source(JobSource.ADZUNA)
@@ -96,7 +124,12 @@ public class AdzunaService {
             log.error("[ADZUNA] Failed to parse response", e);
         }
 
-        System.out.println("Jobs fetched: " + jobs.size());
+        if (jobs.isEmpty() && allowLocationRetry && !safeLocation.isBlank()) {
+            log.info("[ADZUNA] 0 jobs for location='{}'. Retrying query without location filter.", safeLocation);
+            return fetchJobsInternal(safeQuery, "", false);
+        }
+
+        log.info("[ADZUNA] Jobs fetched: {}", jobs.size());
         return jobs;
     }
 
@@ -153,7 +186,7 @@ public class AdzunaService {
         if (skills != null && !skills.isEmpty()) {
             List<String> topSkills = skills.stream()
                     .limit(3)
-                    .collect(Collectors.toList());
+                    .toList();
             if (!topSkills.isEmpty()) {
                 query.append(" ").append(String.join(" ", topSkills));
             }
@@ -179,3 +212,6 @@ public class AdzunaService {
         }
     }
 }
+
+
+

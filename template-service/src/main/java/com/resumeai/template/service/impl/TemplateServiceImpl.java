@@ -11,24 +11,36 @@ import com.resumeai.template.entity.Template;
 import com.resumeai.template.entity.TemplateCategory;
 import com.resumeai.template.exception.TemplateNotFoundException;
 import com.resumeai.template.repository.TemplateRepository;
+import com.resumeai.template.service.NotificationProducer;
 import com.resumeai.template.service.TemplateService;
+import com.resumeai.template.service.TemplateValidationService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+/** Implements template workflows and service-layer orchestration. */
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TemplateServiceImpl implements TemplateService {
 
     private final TemplateRepository templateRepository;
+    private final NotificationProducer notificationProducer;
+    private final TemplateValidationService templateValidationService;
 
     @Override
     @Transactional
     public TemplateResponse createTemplate(TemplateRequest request) {
+        // Sanitize and validate template markup before storing or exposing it.
+        String sanitizedHtml = templateValidationService.sanitizeHtml(request.getHtmlContent());
+        templateValidationService.validateHtml(sanitizedHtml);
+
         Template template = Template.builder()
                 .name(request.getName())
                 .category(request.getCategory() == null ? TemplateCategory.PROFESSIONAL : request.getCategory())
                 .description(request.getDescription())
-                .htmlContent(request.getHtmlContent())
+            .htmlContent(sanitizedHtml)
                 .cssContent(request.getCssContent())
                 .fieldsJson(request.getFieldsJson())
                 .previewImageUrl(request.getPreviewImageUrl())
@@ -36,7 +48,16 @@ public class TemplateServiceImpl implements TemplateService {
                 .isActive(request.getIsActive() == null || request.getIsActive())
                 .build();
 
-        return mapToResponse(templateRepository.save(template));
+        Template saved = templateRepository.save(template);
+
+        // Publish template.created event
+        try {
+            notificationProducer.publishTemplateCreatedEvent(saved.getTemplateId(), saved.getName());
+        } catch (Exception e) {
+            log.warn("Failed to publish template.created event: {}", e.getMessage());
+        }
+
+        return mapToResponse(saved);
     }
 
     @Override
@@ -60,12 +81,16 @@ public class TemplateServiceImpl implements TemplateService {
     public TemplateResponse updateTemplate(Long templateId, TemplateRequest request) {
         Template template = getTemplateEntityById(templateId);
 
+        // Re-validate edited HTML to keep render output safe and predictable.
+        String sanitizedHtml = templateValidationService.sanitizeHtml(request.getHtmlContent());
+        templateValidationService.validateHtml(sanitizedHtml);
+
         template.setName(request.getName());
         if (request.getCategory() != null) {
             template.setCategory(request.getCategory());
         }
         template.setDescription(request.getDescription());
-        template.setHtmlContent(request.getHtmlContent());
+        template.setHtmlContent(sanitizedHtml);
         template.setCssContent(request.getCssContent());
         if (request.getFieldsJson() != null) {
             template.setFieldsJson(request.getFieldsJson());
@@ -76,7 +101,16 @@ public class TemplateServiceImpl implements TemplateService {
             template.setActive(request.getIsActive());
         }
 
-        return mapToResponse(templateRepository.save(template));
+        Template saved = templateRepository.save(template);
+
+        // Publish template.updated event
+        try {
+            notificationProducer.publishTemplateUpdatedEvent(saved.getTemplateId(), saved.getName());
+        } catch (Exception e) {
+            log.warn("Failed to publish template.updated event: {}", e.getMessage());
+        }
+
+        return mapToResponse(saved);
     }
 
     @Override
@@ -84,6 +118,13 @@ public class TemplateServiceImpl implements TemplateService {
     public void deleteTemplate(Long templateId) {
         getTemplateEntityById(templateId);
         templateRepository.deleteByTemplateId(templateId);
+
+        // Publish template.deleted event
+        try {
+            notificationProducer.publishTemplateDeletedEvent(templateId);
+        } catch (Exception e) {
+            log.warn("Failed to publish template.deleted event: {}", e.getMessage());
+        }
     }
 
     @Override
@@ -110,12 +151,13 @@ public class TemplateServiceImpl implements TemplateService {
     }
 
     private TemplateResponse mapToResponse(Template template) {
+        String safeHtml = templateValidationService.sanitizeHtml(template.getHtmlContent());
         return TemplateResponse.builder()
                 .templateId(template.getTemplateId())
                 .name(template.getName())
                 .category(template.getCategory())
                 .description(template.getDescription())
-                .htmlContent(template.getHtmlContent())
+                .htmlContent(safeHtml)
                 .cssContent(template.getCssContent())
                 .fieldsJson(template.getFieldsJson())
                 .previewImageUrl(template.getPreviewImageUrl())
@@ -126,3 +168,6 @@ public class TemplateServiceImpl implements TemplateService {
                 .build();
     }
 }
+
+
+

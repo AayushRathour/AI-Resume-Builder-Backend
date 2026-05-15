@@ -47,12 +47,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+/** Provides supporting job matching operations for workflow execution. */
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class JobMatchService {
 
-    private static final Pattern YEARS_PATTERN = Pattern.compile("(\\d+)\\s*\\+?\\s*(year|years|yr|yrs)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern YEARS_PATTERN = Pattern.compile("(\\d+)\\s*\\+?\\s*(year|years|yr|yrs)",
+            Pattern.CASE_INSENSITIVE);
 
     private final JobRepository jobRepository;
     private final JobMatchRepository jobMatchRepository;
@@ -112,84 +115,85 @@ public class JobMatchService {
 
         String rawResumeText = (file != null && !file.isEmpty())
                 ? pdfParserService.extractTextFromPdf(file)
-                : extractRawResumeTextFromDb(resumeId);
-        
-        // STEP 3: Null check for raw resume text
+                : extractRawResumeTextFromDb(resumeId, userId);
+
+        // Null check for raw resume text
         if (rawResumeText == null) {
             log.error("ERROR: rawResumeText is null after extraction");
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not extract resume text");
         }
 
         ResumeStructuredData structuredResume = resumeStructuringService.fromRawText(rawResumeText);
-        // STEP 3: Null check for structured resume
+        // Null check for structured resume
         if (structuredResume == null) {
             log.error("ERROR: structuredResume is null");
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not structure resume data");
         }
-        
+
         if (structuredResume.getNormalizedText() == null || structuredResume.getNormalizedText().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Resume text is empty. Please upload a valid resume");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Resume text is empty. Please upload a valid resume");
         }
 
         Long effectiveResumeId = resumeId != null ? resumeId : 0L;
-        
-        log.info("STEP 3: Resume text extracted and structured successfully. Length: {}", structuredResume.getNormalizedText().length());
 
-        // STEP 4: Call AI service (NVIDIA NIM via ai-service)
-        System.out.println("STEP 3: Calling AI");
-        AiServiceResponse<ResumeExtractResponse> aiResponse = aiServiceClient.extractResume(
-            ResumeExtractRequest.builder()
-                .userId(userId)
-                .resumeId(effectiveResumeId)
-                .resumeText(structuredResume.getNormalizedText())
-                .build());
+        log.info("STEP 3: Resume text extracted and structured successfully. Length: {}",
+                structuredResume.getNormalizedText().length());
+
+        // Call AI service (optional). If AI times out/unavailable, continue with local extraction.
+        log.info("STEP 3: Calling AI service for resume extraction");
+        AiServiceResponse<ResumeExtractResponse> aiResponse = tryExtractResumeWithAi(
+                userId,
+                effectiveResumeId,
+                structuredResume.getNormalizedText());
 
         if (aiResponse != null && "failed".equalsIgnoreCase(aiResponse.getStatus())) {
             log.warn("AI resume extraction failed: {}", aiResponse.getMessage());
         }
 
-        ResumeExtractResponse resumeExtract = normalizeResumeExtractResponse(aiResponse, structuredResume, rawResumeText, queryTitleFromResume(structuredResume, jobTitle));
+        ResumeExtractResponse resumeExtract = normalizeResumeExtractResponse(aiResponse, structuredResume,
+                rawResumeText, queryTitleFromResume(structuredResume, jobTitle));
 
-        System.out.println("STEP 4: Parsing response");
+        log.info("STEP 4: Parsing AI response");
 
         GeminiExtractionResponse extracted = GeminiExtractionResponse.builder()
-            .skills(resumeExtract.getSkills())
-            .roles(resumeExtract.getRoles())
-            .experienceLevel(resumeExtract.getExperience())
-            .keywords(resumeExtract.getKeywords())
-            .experienceLevel(resumeExtract.getExperience())
-            .build();
+                .skills(resumeExtract.getSkills())
+                .roles(resumeExtract.getRoles())
+                .experienceLevel(resumeExtract.getExperience())
+                .keywords(resumeExtract.getKeywords())
+                .experienceLevel(resumeExtract.getExperience())
+                .build();
 
         List<String> extractedSkills = extracted.getSkills() != null ? extracted.getSkills() : List.of();
         List<String> extractedRoles = extracted.getRoles() != null ? extracted.getRoles() : List.of();
 
-        // 🔴 STEP 7: IMPROVE JOB SEARCH QUERY - combine roles + top skills
         String improvedQuery = buildImprovedSearchQuery(extractedRoles, extractedSkills);
         String queryTitle = (jobTitle != null && !jobTitle.isBlank())
-            ? jobTitle.trim()
-            : firstNonBlank(
-                extractedRoles.isEmpty() ? "" : extractedRoles.get(0),
-                extractedSkills.isEmpty() ? "" : extractedSkills.get(0),
-                improvedQuery,
-                "software developer");
-        
-        log.info("🔵 STEP 5: Job search query: {}", queryTitle);
-        
-        // STEP 5: Try Adzuna API first, then fallback to TheirStack
+                ? jobTitle.trim()
+                : firstNonBlank(
+                        extractedRoles.isEmpty() ? "" : extractedRoles.get(0),
+                        extractedSkills.isEmpty() ? "" : extractedSkills.get(0),
+                        improvedQuery,
+                        "software developer");
+
+        log.info(" STEP 5: Job search query: {}", queryTitle);
+
+        // Try Adzuna API first, then fallback to TheirStack
         List<Map<String, Object>> fetchedJobs = new ArrayList<>();
-        
+
         try {
             log.info("[ADZUNA] Attempting to fetch jobs from Adzuna API...");
-            fetchedJobs = adzunaService.fetchJobs(queryTitle);
+            fetchedJobs = adzunaService.fetchJobs(queryTitle, location);
             log.info("[ADZUNA] Adzuna API returned {} jobs", fetchedJobs != null ? fetchedJobs.size() : 0);
-            
+
             if (fetchedJobs != null && !fetchedJobs.isEmpty()) {
-                log.info("✓ Using Adzuna API results ({} jobs)", fetchedJobs.size());
+                log.info("Using Adzuna API results ({} jobs)", fetchedJobs.size());
             } else {
                 log.warn("[FALLBACK] Adzuna returned 0 jobs, trying TheirStack API...");
                 try {
                     fetchedJobs = theirStackService.searchJobs(queryTitle, extractedSkills, location);
-                    log.info("[FALLBACK] TheirStack API returned {} jobs", fetchedJobs != null ? fetchedJobs.size() : 0);
+                    log.info("[FALLBACK] TheirStack API returned {} jobs",
+                            fetchedJobs != null ? fetchedJobs.size() : 0);
                 } catch (Exception theirStackErr) {
                     log.error("[FALLBACK] TheirStack API also failed: {}", theirStackErr.getMessage());
                     fetchedJobs = new ArrayList<>();
@@ -205,31 +209,56 @@ public class JobMatchService {
                 fetchedJobs = new ArrayList<>();
             }
         }
-        
-        // STEP 3: Null check for fetchedJobs
+
+        // Null check for fetchedJobs
         if (fetchedJobs == null) {
             log.warn("STEP 3: fetchedJobs is null, initializing empty list");
             fetchedJobs = new ArrayList<>();
         }
 
         if (fetchedJobs.isEmpty()) {
-            log.warn("⚠ No jobs found from any API. Returning empty results.");
+            log.warn("No jobs found from external APIs. Trying local DB fallback search.");
+            List<JobResponse> localJobs = fetchJobs(queryTitle);
+            if (localJobs.isEmpty() && extractedRoles != null && !extractedRoles.isEmpty()) {
+                localJobs = fetchJobs(extractedRoles.get(0));
+            }
+            if (localJobs.isEmpty() && extractedSkills != null && !extractedSkills.isEmpty()) {
+                localJobs = fetchJobs(extractedSkills.get(0));
+            }
+            if (!localJobs.isEmpty()) {
+                fetchedJobs = localJobs.stream().map(job -> {
+                    Map<String, Object> dto = new HashMap<>();
+                    dto.put("id", job.getJobId());
+                    dto.put("title", job.getTitle());
+                    dto.put("company", job.getCompany());
+                    dto.put("location", firstNonBlank(job.getLocation(), location, "Remote"));
+                    dto.put("description", firstNonBlank(job.getDescription(), ""));
+                    dto.put("url", "");
+                    dto.put("source", String.valueOf(job.getSource()));
+                    return dto;
+                }).collect(Collectors.toList());
+                log.info("Local DB fallback provided {} jobs.", fetchedJobs.size());
+            }
+        }
+
+        if (fetchedJobs.isEmpty()) {
+            log.warn("No jobs found from any source. Returning empty results.");
             AnalysisResponse.ExtractedData extractedData = AnalysisResponse.ExtractedData.builder()
-                .skills(extracted.getSkills())
-                .roles(extracted.getRoles())
-                .keywords(extracted.getKeywords())
-                .experienceLevel(extracted.getExperienceLevel())
-                .summary(structuredResume.getSummary())
-                .build();
+                    .skills(extracted.getSkills())
+                    .roles(extracted.getRoles())
+                    .keywords(extracted.getKeywords())
+                    .experienceLevel(extracted.getExperienceLevel())
+                    .summary(structuredResume.getSummary())
+                    .build();
 
             return AnalysisResponse.builder()
-                .extractedData(extractedData)
-                .matches(new ArrayList<>())
-                .jobs(new ArrayList<>())
-                .totalMatches(0)
-                .build();
+                    .extractedData(extractedData)
+                    .matches(new ArrayList<>())
+                    .jobs(new ArrayList<>())
+                    .totalMatches(0)
+                    .build();
         }
-        
+
         log.info("STEP 10: Processing {} jobs for matching", fetchedJobs.size());
 
         if (userId != null) {
@@ -237,6 +266,7 @@ public class JobMatchService {
         }
 
         List<MatchResponse> responses = new ArrayList<>();
+        List<JobMatch> allMatches = new ArrayList<>();
 
         for (Map<String, Object> jobData : fetchedJobs) {
             Long externalJobId = firstNonNullLong(
@@ -276,27 +306,6 @@ public class JobMatchService {
 
             double matchScore = computeAdvancedScore(extracted, structuredResume, title, description);
             log.debug("STEP 10: Job '{}' scored: {}", title, matchScore);
-            
-            // STEP 4: Wrap missing skills analysis with try-catch
-            MissingSkillsResponse analysis = MissingSkillsResponse.builder()
-                    .missingSkills("")
-                    .recommendations("")
-                    .build();
-            try {
-                AiServiceResponse<MissingSkillsResponse> missingSkills = aiServiceClient.analyzeMissingSkills(
-                        MissingSkillsRequest.builder()
-                                .userId(userId)
-                                .resumeId(resumeId)
-                                .resumeText(structuredResume.getNormalizedText())
-                                .jobDescription(description)
-                                .build());
-                if (missingSkills != null && missingSkills.getData() != null) {
-                    analysis = missingSkills.getData();
-                }
-                log.debug("STEP 10: Missing skills analysis completed for '{}'", title);
-            } catch (Exception e) {
-                log.warn("STEP 4: Failed to analyze missing skills for '{}': {}", title, e.getMessage());
-            }
 
             JobMatch match = JobMatch.builder()
                     .userId(userId != null ? userId : 0L)
@@ -308,64 +317,94 @@ public class JobMatchService {
                     .applyUrl(applyUrl)
                     .jobDescription(description)
                     .matchScore(matchScore)
-                    .missingSkills(analysis.getMissingSkills() == null ? "" : analysis.getMissingSkills())
-                    .recommendations(analysis.getRecommendations() == null ? "" : analysis.getRecommendations())
+                    .missingSkills("")
+                    .recommendations("")
                     .source(source)
                     .isBookmarked(false)
                     .build();
-            
-            log.debug("STEP 10: Match created: title={}, score={}, source={}, userId={}", title, matchScore, source, userId);
 
+            allMatches.add(match);
+        }
+
+        // Sort by score FIRST, then run AI missing-skills only on top 5 matches
+        // (avoids 20+ sequential Gemini calls that caused Read Timeout)
+        allMatches.sort(Comparator.comparingDouble(JobMatch::getMatchScore).reversed());
+
+        int aiAnalysisLimit = Math.min(5, allMatches.size());
+        List<JobMatch> topMatchesToAnalyze = allMatches.subList(0, aiAnalysisLimit);
+
+        topMatchesToAnalyze.parallelStream().forEach(match -> {
+            try {
+                AiServiceResponse<MissingSkillsResponse> missingSkills = aiServiceClient.analyzeMissingSkills(
+                        MissingSkillsRequest.builder()
+                                .userId(userId)
+                                .resumeId(resumeId)
+                                .resumeText(structuredResume.getNormalizedText())
+                                .jobDescription(match.getJobDescription())
+                                .build());
+                if (missingSkills != null && missingSkills.getData() != null) {
+                    MissingSkillsResponse analysis = missingSkills.getData();
+                    match.setMissingSkills(analysis.getMissingSkills() == null ? "" : analysis.getMissingSkills());
+                    match.setRecommendations(analysis.getRecommendations() == null ? "" : analysis.getRecommendations());
+                }
+                log.debug("Missing skills analysis completed for '{}'", match.getJobTitle());
+            } catch (Exception e) {
+                log.warn("Failed to analyze missing skills for '{}': {}", match.getJobTitle(), e.getMessage());
+            }
+        });
+
+        // Persist and build responses
+        for (JobMatch match : allMatches) {
             if (userId != null) {
                 match = jobMatchRepository.save(match);
                 log.debug("STEP 10: Match persisted to DB with matchId: {}", match.getMatchId());
             }
-
             responses.add(toMatchResponse(match));
-            log.debug("STEP 10: Match added to response list. Total responses: {}", responses.size());
         }
 
         responses.sort(Comparator.comparingDouble(MatchResponse::getMatchScore).reversed());
         log.info("\n===== ANALYSIS COMPLETE =====");
         log.info("STEP 10: Total matches created: {}", responses.size());
-        log.info("STEP 10: Top match score: {}", responses.stream().mapToDouble(MatchResponse::getMatchScore).max().orElse(0));
-        log.info("STEP 10: Resume: {} | userId: {} | location: {}", rawResumeText.length() + " chars", userId, location);
+        log.info("STEP 10: Top match score: {}",
+                responses.stream().mapToDouble(MatchResponse::getMatchScore).max().orElse(0));
+        log.info("STEP 10: Resume: {} | userId: {} | location: {}", rawResumeText.length() + " chars", userId,
+                location);
         log.info("==============================\n");
-        
+
         if (userId != null) {
             publishMatchNotification(userId, responses.size());
         }
         AnalysisResponse.ExtractedData extractedData = AnalysisResponse.ExtractedData.builder()
-            .skills(extracted.getSkills())
-            .roles(extracted.getRoles())
-            .keywords(extracted.getKeywords())
-            .experienceLevel(extracted.getExperienceLevel())
-            .summary(structuredResume.getSummary())
-            .build();
+                .skills(extracted.getSkills())
+                .roles(extracted.getRoles())
+                .keywords(extracted.getKeywords())
+                .experienceLevel(extracted.getExperienceLevel())
+                .summary(structuredResume.getSummary())
+                .build();
 
         return AnalysisResponse.builder()
-            .extractedData(extractedData)
-            .matches(responses)
-            .jobs(new ArrayList<>(fetchedJobs))
-            .totalMatches(responses.size())
-            .build();
+                .extractedData(extractedData)
+                .matches(responses)
+                .jobs(new ArrayList<>(fetchedJobs))
+                .totalMatches(responses.size())
+                .build();
     }
 
     @Transactional(readOnly = true)
     public List<MatchResponse> getRankedJobs(Long userId) {
-        // STEP 5: Null check for userId
+        // Null check for userId
         if (userId == null || userId <= 0) {
             log.warn("STEP 5: getRankedJobs called with invalid userId: {}", userId);
             return new ArrayList<>();
         }
-        
+
         List<JobMatch> matches = jobMatchRepository.findByUserIdOrderByMatchScoreDescCreatedAtDesc(userId);
-        // STEP 5: Null check for repository result
+        // Null check for repository result
         if (matches == null) {
             log.warn("STEP 5: Repository returned null for userId: {}", userId);
             return new ArrayList<>();
         }
-        
+
         log.info("STEP 10: getRankedJobs retrieved {} matches for userId {}", matches.size(), userId);
         return matches.stream()
                 .map(this::toMatchResponse)
@@ -374,24 +413,25 @@ public class JobMatchService {
 
     @Transactional(readOnly = true)
     public List<MatchResponse> getTopMatches(Long userId, int limit) {
-        // STEP 5: Null check for userId and limit
+        // Null check for userId and limit
         if (userId == null || userId <= 0) {
             log.warn("STEP 5: getTopMatches called with invalid userId: {}", userId);
             return new ArrayList<>();
         }
-        
+
         if (limit <= 0) {
             limit = 10; // Default limit
         }
-        
+
         List<JobMatch> matches = jobMatchRepository.findByUserIdOrderByMatchScoreDescCreatedAtDesc(userId);
-        // STEP 5: Null check for repository result
+        // Null check for repository result
         if (matches == null) {
             log.warn("STEP 5: Repository returned null for userId: {}", userId);
             return new ArrayList<>();
         }
-        
-        log.info("STEP 10: getTopMatches retrieving top {} from {} total matches for userId {}", limit, matches.size(), userId);
+
+        log.info("STEP 10: getTopMatches retrieving top {} from {} total matches for userId {}", limit, matches.size(),
+                userId);
         return matches.stream()
                 .limit(Math.max(limit, 1))
                 .map(this::toMatchResponse)
@@ -405,19 +445,19 @@ public class JobMatchService {
 
     @Transactional(readOnly = true)
     public List<MatchResponse> getMatchesForResume(Long resumeId) {
-        // STEP 3: Null check for resumeId
+        // Null check for resumeId
         if (resumeId == null || resumeId <= 0) {
             log.warn("STEP 3: getMatchesForResume called with invalid resumeId: {}", resumeId);
             return new ArrayList<>();
         }
-        
+
         List<JobMatch> matches = jobMatchRepository.findByResumeId(resumeId);
-        // STEP 3: Null check for repository result
+        // Null check for repository result
         if (matches == null) {
             log.warn("STEP 3: Repository returned null for resumeId: {}", resumeId);
             return new ArrayList<>();
         }
-        
+
         log.info("STEP 10: getMatchesForResume retrieved {} matches for resumeId {}", matches.size(), resumeId);
         return matches.stream()
                 .map(this::toMatchResponse)
@@ -457,7 +497,8 @@ public class JobMatchService {
     }
 
     @Transactional
-    public List<MatchResponse> matchResumeWithJobs(Long userId, Long resumeId, String customJobTitle, String customJobDesc) {
+    public List<MatchResponse> matchResumeWithJobs(Long userId, Long resumeId, String customJobTitle,
+            String customJobDesc) {
         return analyzeAndMatch(null, resumeId, userId, customJobTitle, null);
     }
 
@@ -469,8 +510,7 @@ public class JobMatchService {
 
         List<String> skills = extracted.getSkills() == null ? List.of() : extracted.getSkills();
         List<String> roles = extracted.getRoles() == null ? List.of() : extracted.getRoles();
-        
-        // 🔴 STEP 8: Use new improved score calculation
+
         return calculateImprovedScore(skills, List.of(jobDescription), roles, jobTitle);
     }
 
@@ -487,7 +527,8 @@ public class JobMatchService {
         return ((double) matched / tokens.size()) * weight;
     }
 
-    private double calculateExperienceScore(String experienceLevel, List<String> resumeExperience, String descriptionLower) {
+    private double calculateExperienceScore(String experienceLevel, List<String> resumeExperience,
+            String descriptionLower) {
         int resumeYears = Math.max(
                 extractYears(experienceLevel),
                 extractYears(String.join(" ", resumeExperience == null ? List.of() : resumeExperience)));
@@ -530,7 +571,7 @@ public class JobMatchService {
         return max;
     }
 
-    private String extractRawResumeTextFromDb(Long resumeId) {
+    private String extractRawResumeTextFromDb(Long resumeId, Long userId) {
         if (resumeId == null) {
             return "";
         }
@@ -539,7 +580,7 @@ public class JobMatchService {
         boolean resumeFound = false;
 
         try {
-            ResumeDTO resume = resumeClient.getResumeById(resumeId);
+            ResumeDTO resume = resumeClient.getResumeById(resumeId, userId);
             if (resume != null) {
                 resumeFound = true;
                 appendValue(combined, resume.getTitle());
@@ -551,7 +592,7 @@ public class JobMatchService {
         }
 
         try {
-            List<SectionDTO> sections = sectionClient.getSectionsByResumeId(resumeId);
+            List<SectionDTO> sections = sectionClient.getSectionsByResumeId(resumeId, userId);
             if (sections != null) {
                 for (SectionDTO section : sections) {
                     appendValue(combined, section.getTitle());
@@ -562,7 +603,7 @@ public class JobMatchService {
             log.warn("Could not fetch sections for resumeId={}: {}", resumeId, ex.getMessage());
         }
 
-        if (!resumeFound) {
+        if (!resumeFound && combined.toString().isBlank()) {
             throw new RuntimeException("Resume not found");
         }
 
@@ -592,6 +633,29 @@ public class JobMatchService {
             return List.of("software", "developer");
         }
         return new ArrayList<>(merged);
+    }
+
+    private AiServiceResponse<ResumeExtractResponse> tryExtractResumeWithAi(Long userId, Long resumeId, String normalizedResumeText) {
+        try {
+            return aiServiceClient.extractResume(
+                    ResumeExtractRequest.builder()
+                            .userId(userId)
+                            .resumeId(resumeId)
+                            .resumeText(normalizedResumeText)
+                            .build());
+        } catch (Exception ex) {
+            log.warn("AI resume extraction unavailable or timed out. Falling back to local extraction: {}", ex.getMessage());
+            return AiServiceResponse.<ResumeExtractResponse>builder()
+                    .status("failed")
+                    .message("AI timeout/unavailable")
+                    .data(ResumeExtractResponse.builder()
+                            .skills(List.of())
+                            .roles(List.of())
+                            .keywords(List.of())
+                            .experience("AI TEMPORARILY UNAVAILABLE")
+                            .build())
+                    .build();
+        }
     }
 
     private String readString(Map<String, Object> payload, String key) {
@@ -660,7 +724,7 @@ public class JobMatchService {
                 .matchId(match.getMatchId())
                 .userId(match.getUserId())
                 .resumeId(match.getResumeId())
-.jobId(match.getJobId())
+                .jobId(match.getJobId())
                 .jobTitle(match.getJobTitle())
                 .company(match.getCompany())
                 .location(match.getLocation())
@@ -711,10 +775,9 @@ public class JobMatchService {
         }
     }
 
-    // 🔴 STEP 7: IMPROVED JOB SEARCH QUERY - combine roles + top skills
     private String buildImprovedSearchQuery(List<String> roles, List<String> skills) {
         StringBuilder query = new StringBuilder();
-        
+
         // Add top roles
         if (roles != null && !roles.isEmpty()) {
             String topRoles = roles.stream()
@@ -725,7 +788,7 @@ public class JobMatchService {
                 query.append(topRoles).append(" ");
             }
         }
-        
+
         // Add top 3 skills
         if (skills != null && !skills.isEmpty()) {
             String topSkills = skills.stream()
@@ -736,41 +799,40 @@ public class JobMatchService {
                 query.append(topSkills);
             }
         }
-        
+
         String result = query.toString().trim();
-        log.info("🟢 Built improved search query: {}", result);
+        log.info("Built improved search query: {}", result);
         return result.isEmpty() ? "software engineer" : result;
     }
 
-    // 🔴 STEP 8: IMPROVED MATCH SCORE - use ratio formula
     private double calculateImprovedScore(
-            List<String> resumeSkills, 
+            List<String> resumeSkills,
             List<String> jobDescription,
             List<String> roles,
             String jobTitle) {
-        
+
         String descLower = jobDescription.stream()
                 .filter(s -> s != null && !s.isBlank())
                 .collect(Collectors.joining(" "))
                 .toLowerCase(Locale.ROOT);
         String titleLower = jobTitle == null ? "" : jobTitle.toLowerCase(Locale.ROOT);
-        
-        // 🔴 Skill matching: (matchedSkills / totalSkills) * 100
+
         int totalSkills = resumeSkills == null || resumeSkills.isEmpty() ? 1 : resumeSkills.size();
-        long matchedSkills = resumeSkills == null ? 0 : resumeSkills.stream()
-                .filter(skill -> skill != null && !skill.isBlank())
-                .filter(skill -> descLower.contains(skill.toLowerCase(Locale.ROOT)))
-                .count();
-        
+        long matchedSkills = resumeSkills == null ? 0
+                : resumeSkills.stream()
+                        .filter(skill -> skill != null && !skill.isBlank())
+                        .filter(skill -> descLower.contains(skill.toLowerCase(Locale.ROOT)))
+                        .count();
+
         double skillScore = ((double) matchedSkills / totalSkills) * 100.0;
-        
+
         // Role matching
         boolean roleMatched = roles != null && roles.stream()
                 .filter(role -> role != null && !role.isBlank())
                 .anyMatch(role -> titleLower.contains(role.toLowerCase(Locale.ROOT)));
-        
+
         double roleScore = roleMatched ? 20.0 : 5.0;
-        
+
         // Final score: weighted combination
         double finalScore = (skillScore * 0.7) + (roleScore * 0.3);
         return Math.min(Math.round(finalScore * 100.0) / 100.0, 100.0);
@@ -785,7 +847,8 @@ public class JobMatchService {
         ResumeExtractResponse aiExtract = aiResponse != null ? aiResponse.getData() : null;
         List<String> aiSkills = aiExtract != null && aiExtract.getSkills() != null ? aiExtract.getSkills() : List.of();
         List<String> aiRoles = aiExtract != null && aiExtract.getRoles() != null ? aiExtract.getRoles() : List.of();
-        List<String> aiKeywords = aiExtract != null && aiExtract.getKeywords() != null ? aiExtract.getKeywords() : List.of();
+        List<String> aiKeywords = aiExtract != null && aiExtract.getKeywords() != null ? aiExtract.getKeywords()
+                : List.of();
         String aiExperience = aiExtract != null ? aiExtract.getExperience() : null;
 
         List<String> localSkills = structuredResume.getSkills() == null ? List.of() : structuredResume.getSkills();
@@ -817,7 +880,30 @@ public class JobMatchService {
     }
 
     private String queryTitleFromResume(ResumeStructuredData structuredResume, String fallback) {
-        return fallback == null ? "" : fallback;
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback.trim();
+        }
+        if (structuredResume != null) {
+            if (structuredResume.getExperience() != null) {
+                for (String entry : structuredResume.getExperience()) {
+                    if (entry == null) {
+                        continue;
+                    }
+                    String lower = entry.toLowerCase(Locale.ROOT);
+                    if (lower.contains("backend")) return "Backend Developer";
+                    if (lower.contains("frontend")) return "Frontend Developer";
+                    if (lower.contains("full stack") || lower.contains("fullstack")) return "Full Stack Developer";
+                    if (lower.contains("data")) return "Data Analyst";
+                    if (lower.contains("react")) return "React Developer";
+                    if (lower.contains("java")) return "Java Developer";
+                }
+            }
+            List<String> skills = structuredResume.getSkills();
+            if (skills != null && !skills.isEmpty()) {
+                return (skills.get(0) + " developer").trim();
+            }
+        }
+        return "software developer";
     }
 
     private List<String> deriveRoles(ResumeStructuredData structuredResume, String rawResumeText, String queryTitle) {
@@ -828,35 +914,47 @@ public class JobMatchService {
                     continue;
                 }
                 String lower = entry.toLowerCase(Locale.ROOT);
-                if (lower.contains("developer")) roles.add("Software Developer");
-                if (lower.contains("engineer")) roles.add("Software Engineer");
-                if (lower.contains("frontend")) roles.add("Frontend Developer");
-                if (lower.contains("backend")) roles.add("Backend Developer");
-                if (lower.contains("full stack") || lower.contains("fullstack")) roles.add("Full Stack Developer");
-                if (lower.contains("react")) roles.add("React Developer");
-                if (lower.contains("data scientist")) roles.add("Data Scientist");
-                if (lower.contains("analyst")) roles.add("Data Analyst");
-                if (lower.contains("intern")) roles.add("Intern");
+                if (lower.contains("developer"))
+                    roles.add("Software Developer");
+                if (lower.contains("engineer"))
+                    roles.add("Software Engineer");
+                if (lower.contains("frontend"))
+                    roles.add("Frontend Developer");
+                if (lower.contains("backend"))
+                    roles.add("Backend Developer");
+                if (lower.contains("full stack") || lower.contains("fullstack"))
+                    roles.add("Full Stack Developer");
+                if (lower.contains("react"))
+                    roles.add("React Developer");
+                if (lower.contains("data scientist"))
+                    roles.add("Data Scientist");
+                if (lower.contains("analyst"))
+                    roles.add("Data Analyst");
+                if (lower.contains("intern"))
+                    roles.add("Intern");
             }
         }
 
         String combined = (rawResumeText == null ? "" : rawResumeText) + " " + (queryTitle == null ? "" : queryTitle);
         String lowerCombined = combined.toLowerCase(Locale.ROOT);
-        if (lowerCombined.contains("software engineer")) roles.add("Software Engineer");
-        if (lowerCombined.contains("software developer")) roles.add("Software Developer");
-        if (lowerCombined.contains("full stack")) roles.add("Full Stack Developer");
-        if (lowerCombined.contains("frontend")) roles.add("Frontend Developer");
-        if (lowerCombined.contains("backend")) roles.add("Backend Developer");
-        if (lowerCombined.contains("react")) roles.add("React Developer");
-
-        if (roles.isEmpty()) {
+        if (lowerCombined.contains("software engineer"))
+            roles.add("Software Engineer");
+        if (lowerCombined.contains("software developer"))
             roles.add("Software Developer");
-        }
+        if (lowerCombined.contains("full stack"))
+            roles.add("Full Stack Developer");
+        if (lowerCombined.contains("frontend"))
+            roles.add("Frontend Developer");
+        if (lowerCombined.contains("backend"))
+            roles.add("Backend Developer");
+        if (lowerCombined.contains("react"))
+            roles.add("React Developer");
 
         return new ArrayList<>(roles);
     }
 
-    private List<String> deriveKeywords(ResumeStructuredData structuredResume, String rawResumeText, List<String> roles, List<String> skills) {
+    private List<String> deriveKeywords(ResumeStructuredData structuredResume, String rawResumeText, List<String> roles,
+            List<String> skills) {
         Set<String> keywords = new LinkedHashSet<>();
         if (skills != null) {
             keywords.addAll(skills.stream().filter(s -> s != null && !s.isBlank()).limit(10).toList());
@@ -865,15 +963,20 @@ public class JobMatchService {
             keywords.addAll(roles.stream().filter(r -> r != null && !r.isBlank()).limit(5).toList());
         }
         if (structuredResume != null && structuredResume.getEducation() != null) {
-            keywords.addAll(structuredResume.getEducation().stream().filter(e -> e != null && !e.isBlank()).limit(3).toList());
+            keywords.addAll(
+                    structuredResume.getEducation().stream().filter(e -> e != null && !e.isBlank()).limit(3).toList());
         }
 
         String text = rawResumeText == null ? "" : rawResumeText.toLowerCase(Locale.ROOT);
-        for (String token : List.of("spring boot", "microservices", "rest api", "postgresql", "mysql", "docker", "aws", "kubernetes", "typescript", "javascript", "java", "react")) {
-            if (text.contains(token)) {
-                keywords.add(token);
-            }
-        }
+        Arrays.stream(text.split("\\s+"))
+                .map(String::trim)
+                .filter(token -> token.length() >= 4)
+                .filter(token -> token.matches("[a-zA-Z\\+#\\.]+"))
+                .filter(token -> !Set.of("with", "that", "this", "from", "have", "will", "your", "you", "been",
+                        "were", "their", "there", "project", "projects", "education", "experience", "skills",
+                        "developer", "engineer", "summary").contains(token))
+                .limit(12)
+                .forEach(keywords::add);
 
         return new ArrayList<>(keywords);
     }
@@ -881,7 +984,8 @@ public class JobMatchService {
     private String deriveExperienceLevel(String rawResumeText, ResumeStructuredData structuredResume) {
         int years = extractYears(rawResumeText);
         if (years <= 0 && structuredResume != null) {
-            years = extractYears(String.join(" ", structuredResume.getExperience() == null ? List.of() : structuredResume.getExperience()));
+            years = extractYears(String.join(" ",
+                    structuredResume.getExperience() == null ? List.of() : structuredResume.getExperience()));
         }
         if (years >= 5) {
             return "5+ years";
@@ -906,3 +1010,6 @@ public class JobMatchService {
         return new ArrayList<>(merged);
     }
 }
+
+
+

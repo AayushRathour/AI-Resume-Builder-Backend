@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -34,6 +36,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
+/** Implements export workflows and service-layer orchestration. */
 
 @Service
 @RequiredArgsConstructor
@@ -72,6 +76,7 @@ public class ExportServiceImpl implements ExportService {
 
     @Override
     public ExportResponse exportResume(Long userId, Long resumeId, String requestedFormat, Long templateId) {
+        // Normalize requested output and create a tracked export job before processing.
         String format = normalizeFormat(requestedFormat);
 
         ExportJobRecord job = exportJobRepository.save(ExportJobRecord.builder()
@@ -102,16 +107,23 @@ public class ExportServiceImpl implements ExportService {
             
             boolean hasSections = sections != null && !sections.isEmpty();
             boolean hasDynamicSections = resume.getSectionsJson() != null && !resume.getSectionsJson().trim().isEmpty();
-            boolean hasEmbeddedFields = hasEmbeddedFields(resume);
-            if (!hasSections && !hasDynamicSections && !hasEmbeddedFields) {
-                log.info("Export requested with no sections or embedded fields; proceeding with empty PDF.");
+
+            if (!hasSections && !hasDynamicSections) {
+                return markFailed(job, "Add at least one section before export");
             }
 
-                Long effectiveTemplateId = templateId != null ? templateId : resume.getTemplateId();
-                TemplateDTO template = effectiveTemplateId != null
-                    ? templateClient.getTemplateById(effectiveTemplateId)
-                    : null;
-                debugTemplateHtml(effectiveTemplateId, template);
+            // Resolve template priority: explicit request template first, resume-linked template second.
+            Long effectiveTemplateId = templateId != null ? templateId : resume.getTemplateId();
+            TemplateDTO template = null;
+            if (effectiveTemplateId != null) {
+                try {
+                    template = templateClient.getTemplateById(effectiveTemplateId);
+                } catch (Exception ex) {
+                    // Keep export functional even when template-service is down or templateId is invalid.
+                    log.warn("Template lookup failed for templateId={}, falling back to default template: {}",
+                            effectiveTemplateId, ex.getMessage());
+                }
+            }
 
             String payload = "JSON".equals(format)
                     ? buildJsonPayload(resume, sections, template)
@@ -121,7 +133,18 @@ public class ExportServiceImpl implements ExportService {
                 log.info("PDF HTML length: {}", payload.length());
                 log.debug("PDF HTML: {}", payload);
             }
-            String filePath = saveToFile(resumeId, format, payload);
+            String filePath;
+            try {
+                filePath = saveToFile(resumeId, format, payload);
+            } catch (Exception primaryEx) {
+                if (!"PDF".equals(format)) {
+                    throw primaryEx;
+                }
+                log.warn("Primary PDF render failed for resumeId={} (templateId={}). Retrying with safe default template. Cause: {}",
+                        resumeId, effectiveTemplateId, primaryEx.getMessage());
+                String safePayload = buildHtmlPayload(resume, sections, null);
+                filePath = saveToFile(resumeId, format, safePayload);
+            }
 
             job.setStatus("COMPLETED");
             job.setFilePath(filePath);
@@ -202,6 +225,7 @@ public class ExportServiceImpl implements ExportService {
     }
 
     private void publishNotification(ExportJobRecord job) {
+        // Publish export.completed so notification-service can alert users asynchronously.
         try {
             NotificationEvent event = NotificationEvent.builder()
                     .userId(job.getUserId())
@@ -233,15 +257,13 @@ public class ExportServiceImpl implements ExportService {
 
     @SuppressWarnings("unchecked")
     private String buildHtmlPayload(ResumeDTO resume, List<SectionDTO> sections, TemplateDTO template) {
-        // ── PRIMARY PATH: Use template htmlLayout + resume sectionsJson ──
-        // This matches exactly what the builder live preview shows
+        // Primary path: render saved sectionsJson directly into the selected template layout.
         if (resume.getSectionsJson() != null && !resume.getSectionsJson().isBlank()) {
             try {
                 String baseTemplate = template != null && template.getHtmlContent() != null && !template.getHtmlContent().isBlank()
-                    ? template.getHtmlContent()
-                    : DEFAULT_EMPTY_TEMPLATE;
-                String normalizedTemplate = normalizeTemplateHtml(baseTemplate);
-                String html = renderTemplateFromSectionsJson(normalizedTemplate, resume.getSectionsJson());
+                        ? template.getHtmlContent()
+                        : DEFAULT_EMPTY_TEMPLATE;
+                String html = renderTemplateFromSectionsJson(baseTemplate, resume.getSectionsJson());
                 log.info("PDF HTML compiled for resumeId={} (chars={})", resume.getResumeId(), html.length());
                 String css = template != null ? template.getCssContent() : null;
                 return finalizeHtml(html, css);
@@ -250,22 +272,7 @@ public class ExportServiceImpl implements ExportService {
             }
         }
 
-        if (hasEmbeddedFields(resume)) {
-            try {
-                String baseTemplate = template != null && template.getHtmlContent() != null && !template.getHtmlContent().isBlank()
-                    ? template.getHtmlContent()
-                    : DEFAULT_EMPTY_TEMPLATE;
-                String normalizedTemplate = normalizeTemplateHtml(baseTemplate);
-                String synthesizedJson = buildSectionsJsonFromResume(resume);
-                String html = renderTemplateFromSectionsJson(normalizedTemplate, synthesizedJson);
-                String css = template != null ? template.getCssContent() : null;
-                return finalizeHtml(html, css);
-            } catch (Exception ex) {
-                log.warn("Failed to render template from embedded resume fields: {}", ex.getMessage());
-            }
-        }
-
-        // ── FALLBACK: Build HTML from individual sections (legacy) ──
+        // Fallback path: rebuild HTML from legacy section payloads when sectionsJson is not available.
         StringBuilder body = new StringBuilder();
         body.append("<div class=\"resume-header\">")
                 .append("<h1>").append(safe(resume.getTitle())).append("</h1>")
@@ -297,57 +304,6 @@ public class ExportServiceImpl implements ExportService {
                 + ".section h2{font-size:18px;border-bottom:1px solid #ccc;padding-bottom:4px;}";
     }
 
-    private boolean hasEmbeddedFields(ResumeDTO resume) {
-        return resume != null && (
-                isNotBlank(resume.getName())
-                || isNotBlank(resume.getTitle())
-                || isNotBlank(resume.getEmail())
-                || isNotBlank(resume.getPhone())
-                || isNotBlank(resume.getLocation())
-                || isNotBlank(resume.getSummary())
-                || isNotBlank(resume.getSkills())
-                || isNotBlank(resume.getExperience())
-                || isNotBlank(resume.getEducation())
-                || isNotBlank(resume.getProjects())
-        );
-    }
-
-    private boolean isNotBlank(String value) {
-        return value != null && !value.isBlank();
-    }
-
-    private String buildSectionsJsonFromResume(ResumeDTO resume) throws JsonProcessingException {
-        Map<String, Object> data = new LinkedHashMap<>();
-        Map<String, Object> personal = new LinkedHashMap<>();
-        personal.put("name", toText(resume.getName()));
-        personal.put("title", toText(resume.getTitle()));
-        personal.put("email", toText(resume.getEmail()));
-        personal.put("phone", toText(resume.getPhone()));
-        personal.put("location", toText(resume.getLocation()));
-        data.put("personal", personal);
-        data.put("summary", toText(resume.getSummary()));
-        data.put("skills", parseJsonList(resume.getSkills()));
-        data.put("experience", parseJsonList(resume.getExperience()));
-        data.put("education", parseJsonList(resume.getEducation()));
-        data.put("projects", parseJsonList(resume.getProjects()));
-        return OBJECT_MAPPER.writeValueAsString(data);
-    }
-
-    private List<Object> parseJsonList(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return List.of();
-        }
-        try {
-            Object parsed = OBJECT_MAPPER.readValue(raw, Object.class);
-            if (parsed instanceof List<?> list) {
-                return List.copyOf(list);
-            }
-        } catch (Exception ex) {
-            log.debug("Failed to parse JSON list: {}", ex.getMessage());
-        }
-        return List.of();
-    }
-
     private String safe(String value) {
         return value == null ? "" : value;
     }
@@ -375,13 +331,11 @@ public class ExportServiceImpl implements ExportService {
         html = replaceToken(html, "email", toHtmlText(email));
         html = replaceToken(html, "phone", toHtmlText(phone));
         html = replaceToken(html, "location", toHtmlText(location));
-        html = replaceToken(html, "linkedin", linkOrText(linkedin, "LinkedIn"));
-        html = replaceToken(html, "github", linkOrText(github, "GitHub"));
-        html = replaceToken(html, "website", linkOrText(website, "Portfolio"));
+        html = replaceLinkToken(html, "linkedin", linkedin);
+        html = replaceLinkToken(html, "github", github);
+        html = replaceLinkToken(html, "website", website);
 
-        String rawSummary = toText(data.get("summary"));
-        String safeSummary = sanitizeSummaryText(rawSummary);
-        html = replaceToken(html, "summary", toHtmlText(safeSummary));
+        html = replaceToken(html, "summary", toHtmlText(toText(data.get("summary"))));
         html = replaceToken(html, "skills", formatSkills(data.get("skills")));
         html = replaceToken(html, "experience", formatExperience(data.get("experience")));
         html = replaceToken(html, "education", formatEducation(data.get("education")));
@@ -395,142 +349,30 @@ public class ExportServiceImpl implements ExportService {
     }
 
     private String finalizeHtml(String html, String css) {
-        String safeBody = html == null ? "" : stripHtmlWrapper(html);
-        ExtractedStyle extracted = extractInlineStyles(safeBody);
-        safeBody = extracted.bodyHtml();
-        String mergedCss = mergeCss(css, extracted.css());
-        String layoutOverrides = buildPdfLayoutOverrides(safeBody);
-        mergedCss = mergeCss(mergedCss, layoutOverrides);
-        String safeCss = mergedCss == null ? "" : sanitizeCssForXml(mergedCss);
-        String doc = buildXhtmlDocument(safeBody, safeCss);
-        return sanitizeXmlHtml(doc);
-    }
+        if (html == null) {
+            html = "";
+        }
 
-    private String buildXhtmlDocument(String bodyHtml, String css) {
-        StringBuilder head = new StringBuilder();
-        head.append("<meta charset=\"UTF-8\" />");
+        String trimmed = html.trim();
+        boolean hasHtmlTag = trimmed.toLowerCase(Locale.ROOT).contains("<html");
+        boolean hasHeadTag = trimmed.toLowerCase(Locale.ROOT).contains("<head");
+
         if (css != null && !css.isBlank()) {
-            head.append("<style>").append(css).append("</style>");
+            String styleBlock = "<style>" + css + "</style>";
+            if (hasHeadTag) {
+                return html.replaceFirst("(?i)</head>", styleBlock + "</head>");
+            }
+            if (hasHtmlTag) {
+                return html.replaceFirst("(?i)<html[^>]*>", "$0<head>" + styleBlock + "</head>");
+            }
+            return "<html><head>" + styleBlock + "</head><body>" + html + "</body></html>";
         }
-        return "<!DOCTYPE html><html xmlns=\"http://www.w3.org/1999/xhtml\"><head>"
-                + head + "</head><body>" + bodyHtml + "</body></html>";
-    }
 
-    private String stripHtmlWrapper(String html) {
-        String cleaned = html;
-        cleaned = cleaned.replaceAll("(?is)<!DOCTYPE[^>]*>", "");
-        cleaned = cleaned.replaceAll("(?is)<\\/?html[^>]*>", "");
-        cleaned = cleaned.replaceAll("(?is)<\\/?head[^>]*>.*?<\\/head>", "");
-        cleaned = cleaned.replaceAll("(?is)<\\/?body[^>]*>", "");
-        return cleaned.trim();
-    }
-
-    private String normalizeTemplateHtml(String templateHtml) {
-        if (templateHtml == null || templateHtml.isBlank()) {
-            return "";
-        }
-        String cleaned = stripHtmlWrapper(templateHtml);
-        // Remove meta tags from templates (we inject a clean one later)
-        cleaned = cleaned.replaceAll("(?i)</meta>", "");
-        cleaned = cleaned.replaceAll("(?i)<meta\\s*[^>]*>", "");
-        // Ensure void tags are self-closed before XHTML wrapping
-        cleaned = cleaned.replaceAll("(?i)<br([^>/]*?)>", "<br$1 />");
-        cleaned = cleaned.replaceAll("(?i)<hr([^>/]*?)>", "<hr$1 />");
-        cleaned = cleaned.replaceAll("(?i)<img([^>/]*?)>", "<img$1 />");
-        cleaned = cleaned.replaceAll("(?i)<input([^>/]*?)>", "<input$1 />");
-        cleaned = cleaned.replaceAll("(?i)<link([^>/]*?)>", "<link$1 />");
-        return cleaned;
-    }
-
-    private String sanitizeXmlHtml(String html) {
-        if (html == null || html.isBlank()) {
+        if (hasHtmlTag) {
             return html;
         }
-        boolean hadFamilyParam = html.contains("&family=");
-        String sanitized = forceCloseMetaTags(html);
-        // Ensure void tags are XML-compliant
-        sanitized = sanitized.replaceAll("(?i)<meta(?![^>]*?/>)\\s*([^>]*)>", "<meta$1 />");
-        sanitized = sanitized.replaceAll("(?i)<link(?![^>]*?/>)\\s*([^>]*)>", "<link$1 />");
-        sanitized = sanitized.replaceAll("(?i)<br(?![^>]*?/>)\\s*([^>]*)>", "<br$1 />");
-        sanitized = sanitized.replaceAll("(?i)<hr(?![^>]*?/>)\\s*([^>]*)>", "<hr$1 />");
-        sanitized = sanitized.replaceAll("(?i)<img(?![^>]*?/>)\\s*([^>]*)>", "<img$1 />");
-        sanitized = sanitized.replaceAll("(?i)<input(?![^>]*?/>)\\s*([^>]*)>", "<input$1 />");
-        // Escape stray ampersands (e.g., in href query params) for XML
-        sanitized = sanitized.replaceAll("&(?!amp;|lt;|gt;|quot;|apos;|#\\d+;|#x[0-9a-fA-F]+;)", "&amp;");
-        if (hadFamilyParam) {
-            log.info("Sanitized ampersands in template HTML for PDF rendering");
-        }
-        return sanitized;
-    }
 
-    private String sanitizeCssForXml(String css) {
-        if (css == null || css.isBlank()) {
-            return css;
-        }
-        return css.replaceAll("&(?!amp;|lt;|gt;|quot;|apos;|#\\d+;|#x[0-9a-fA-F]+;)", "&amp;");
-    }
-
-    private String mergeCss(String primary, String secondary) {
-        if (primary == null || primary.isBlank()) {
-            return secondary;
-        }
-        if (secondary == null || secondary.isBlank()) {
-            return primary;
-        }
-        return primary + "\n" + secondary;
-    }
-
-    private ExtractedStyle extractInlineStyles(String html) {
-        if (html == null || html.isBlank()) {
-            return new ExtractedStyle("", "");
-        }
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(?is)<style[^>]*>(.*?)</style>");
-        java.util.regex.Matcher matcher = pattern.matcher(html);
-        StringBuilder css = new StringBuilder();
-        String cleaned = html;
-        while (matcher.find()) {
-            css.append(matcher.group(1)).append("\n");
-        }
-        cleaned = matcher.replaceAll("");
-        return new ExtractedStyle(cleaned, css.toString().trim());
-    }
-
-    private record ExtractedStyle(String bodyHtml, String css) {}
-
-    private String removeMetaTags(String html) {
-        if (html == null || html.isBlank()) {
-            return html;
-        }
-        String cleaned = html.replaceAll("(?i)</meta>", "");
-        return cleaned.replaceAll("(?is)<meta\\b[^>]*>", "");
-    }
-
-    private String forceCloseMetaTags(String html) {
-        if (html == null || html.isBlank()) {
-            return html;
-        }
-        String cleaned = html.replaceAll("(?i)</meta>", "");
-        return cleaned.replaceAll("(?i)<meta(?![^>]*?/>)\\s*([^>]*)>", "<meta$1 />");
-    }
-
-    private void debugTemplateHtml(Long templateId, TemplateDTO template) {
-        if (templateId == null || template == null) {
-            return;
-        }
-        String html = template.getHtmlContent();
-        if (html == null || html.isBlank()) {
-            return;
-        }
-        try {
-            Path dir = Paths.get(outputDir);
-            Files.createDirectories(dir);
-            Path debugPath = dir.resolve("debug_template_" + templateId + ".html");
-            Files.writeString(debugPath, html);
-            boolean hasMeta = html.toLowerCase(Locale.ROOT).contains("<meta");
-            log.info("Template {} HTML captured (meta tags present: {})", templateId, hasMeta);
-        } catch (Exception ex) {
-            log.warn("Failed to write template debug HTML for templateId={}: {}", templateId, ex.getMessage());
-        }
+        return "<html><body>" + html + "</body></html>";
     }
 
     private String buildInitials(String name) {
@@ -560,6 +402,28 @@ public class ExportServiceImpl implements ExportService {
         return html.replaceAll(pattern, java.util.regex.Matcher.quoteReplacement(safeValue));
     }
 
+    private String replaceLinkToken(String html, String key, String url) {
+        String tokenPattern = "\\{\\{\\s*" + key + "\\s*\\}\\}|\\{\\s*" + key + "\\s*\\}|\\[\\[\\s*" + key + "\\s*\\]\\]";
+        String escaped = escapeHtml(url);
+
+        if (escaped.isBlank()) {
+            return html.replaceAll(tokenPattern, "");
+        }
+
+        Pattern attrPattern = Pattern.compile("(href|src)=([\"']?)\\s*(" + tokenPattern + ")\\s*\\2", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = attrPattern.matcher(html);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            String quote = matcher.group(2);
+            String safeQuote = quote == null || quote.isBlank() ? "\"" : quote;
+            String replacement = matcher.group(1) + "=" + safeQuote + Matcher.quoteReplacement(escaped) + safeQuote;
+            matcher.appendReplacement(out, replacement);
+        }
+        matcher.appendTail(out);
+
+        return out.toString().replaceAll(tokenPattern, Matcher.quoteReplacement(escaped));
+    }
+
     private String toText(Object value) {
         return value == null ? "" : String.valueOf(value);
     }
@@ -568,53 +432,25 @@ public class ExportServiceImpl implements ExportService {
         if (value == null || value.isBlank()) {
             return "";
         }
-        String escaped = escapeHtml(value);
-        return escaped.replace("\n", "<br/>");
-    }
-
-    private String escapeHtml(String input) {
-        if (input == null) {
-            return "";
-        }
-        return input
+        String escaped = value
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
                 .replace("'", "&#039;");
+        return escaped.replace("\n", "<br/>");
     }
 
-    private String sanitizeSummaryText(String summary) {
-        if (summary == null) {
+    private String escapeHtml(String value) {
+        if (value == null || value.isBlank()) {
             return "";
         }
-        String upper = summary.toUpperCase(Locale.ROOT);
-        if (upper.contains("DROP") || upper.contains("CREATE") || upper.contains("USE")) {
-            return "Invalid content removed";
-        }
-        if (upper.contains("<!DOCTYPE")
-                || upper.contains("<HTML")
-                || upper.contains("<HEAD")
-                || upper.contains("<META")
-                || upper.contains("<LINK")) {
-            return "Invalid content removed";
-        }
-        return summary;
-    }
-
-    private String buildPdfLayoutOverrides(String bodyHtml) {
-        if (bodyHtml == null || bodyHtml.isBlank()) {
-            return "";
-        }
-        boolean hasPage = bodyHtml.contains("class=\"page\"");
-        boolean hasSidebar = bodyHtml.contains("class=\"sidebar\"");
-        boolean hasMain = bodyHtml.contains("class=\"main\"");
-        if (!hasPage || !hasSidebar || !hasMain) {
-            return "";
-        }
-        return ".page{display:table;width:794px;table-layout:fixed;}"
-            + ".sidebar{display:table-cell;width:248px;vertical-align:top;}"
-            + ".main{display:table-cell;vertical-align:top;}";
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#039;");
     }
 
     private String linkOrText(String value, String label) {
@@ -732,21 +568,10 @@ public class ExportServiceImpl implements ExportService {
 
         if ("PDF".equals(format)) {
             try (FileOutputStream os = new FileOutputStream(filePath.toFile())) {
-                String xhtml = sanitizeXmlHtml(content);
-                Path debugPath = dir.resolve("debug_last.xhtml");
-                Files.writeString(debugPath, xhtml);
-                log.debug("FINAL HTML: {}", xhtml);
                 PdfRendererBuilder builder = new PdfRendererBuilder();
-                builder.useFastMode();
-                builder.withHtmlContent(xhtml, null);
+                builder.withHtmlContent(content, null);
                 builder.toStream(os);
                 builder.run();
-            } catch (Exception ex) {
-                log.warn("PDF render failed; saving HTML fallback: {}", ex.getMessage());
-                String fallbackName = fileName.replace(".pdf", ".html");
-                Path fallbackPath = dir.resolve(fallbackName);
-                Files.writeString(fallbackPath, content);
-                return fallbackPath.toAbsolutePath().toString();
             }
         } else {
             Files.writeString(filePath, content);
@@ -779,3 +604,7 @@ public class ExportServiceImpl implements ExportService {
         }
     }
 }
+
+
+
+

@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Request payload for cover letter operations. */
+
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class CoverLetterRequest {
     private String jobTitle;
@@ -13,3 +15,6 @@ public class CoverLetterRequest {
     private String jobDescription;
     private String applicantSummary;
 }
+
+
+

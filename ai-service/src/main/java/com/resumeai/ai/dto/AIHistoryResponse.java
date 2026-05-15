@@ -11,6 +11,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Response payload for aihistory operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -29,3 +31,6 @@ public class AIHistoryResponse {
     private LocalDateTime createdAt;
     private LocalDateTime completedAt;
 }
+
+
+

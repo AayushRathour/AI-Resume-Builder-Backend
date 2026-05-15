@@ -16,6 +16,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Persistent entity used by this service domain. */
+
 @Entity
 @Table(name = "ai_requests")
 @Getter
@@ -64,3 +66,4 @@ public class AiRequest {
         this.createdAt = LocalDateTime.now();
     }
 }
+

@@ -3,6 +3,8 @@ package com.resumeai.jobmatch.dto;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 
+/** Request payload for job matching operations. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -20,3 +22,6 @@ public class MatchRequest {
 
     private String jobDescription;
 }
+
+
+

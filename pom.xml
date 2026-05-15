@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	
+	<groupId>com.resumeai</groupId>
+	<artifactId>resumeai-parent</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>pom</packaging>
+	
+	<name>ResumeAI Backend Aggregator</name>
+	<description>Aggregator POM for ResumeAI Microservices</description>
+	
+	<modules>
+		<module>ai-service</module>
+		<module>api-gateway</module>
+		<module>auth-service</module>
+		<module>eureka-server</module>
+		<module>export-service</module>
+		<module>jobmatch-service</module>
+		<module>notification-service</module>
+		<module>resume-service</module>
+		<module>section-service</module>
+		<module>template-service</module>
+	</modules>
+
+	<properties>
+		<sonar.projectKey>resumeai</sonar.projectKey>
+		<sonar.host.url>http://localhost:9000</sonar.host.url>
+		<sonar.exclusions>**/target/**,**/.mvn/**</sonar.exclusions>
+		<!-- Instruct Sonar to aggregate the JaCoCo reports -->
+		<sonar.coverage.jacoco.xmlReportPaths>
+			${project.basedir}/ai-service/target/site/jacoco/jacoco.xml,
+			${project.basedir}/api-gateway/target/site/jacoco/jacoco.xml,
+			${project.basedir}/auth-service/target/site/jacoco/jacoco.xml,
+			${project.basedir}/eureka-server/target/site/jacoco/jacoco.xml,
+			${project.basedir}/export-service/target/site/jacoco/jacoco.xml,
+			${project.basedir}/jobmatch-service/target/site/jacoco/jacoco.xml,
+			${project.basedir}/notification-service/target/site/jacoco/jacoco.xml,
+			${project.basedir}/resume-service/target/site/jacoco/jacoco.xml,
+			${project.basedir}/section-service/target/site/jacoco/jacoco.xml,
+			${project.basedir}/template-service/target/site/jacoco/jacoco.xml
+		</sonar.coverage.jacoco.xmlReportPaths>
+		<sonar.java.source>17</sonar.java.source>
+	</properties>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<version>3.5.5</version>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>

@@ -11,8 +11,8 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Seeds the template_db with default resume templates if none exist.
- * Runs once on startup — skips if templates already present.
+ * Seeds baseline template definitions when the template catalog is empty.
+ * Ensures first-run template-service availability without manual setup.
  */
 @Component
 @RequiredArgsConstructor
@@ -102,7 +102,6 @@ public class DataSeeder implements CommandLineRunner {
         log.info("Seeded {} default templates successfully.", defaults.size());
     }
 
-    // ── Template HTML/CSS Generators ──────────────────────────────────────────
 
     private String professionalHtml() {
         return """
@@ -154,8 +153,8 @@ public class DataSeeder implements CommandLineRunner {
                     <p class="subtitle">{{title}}</p>
                   </div>
                   <div class="contact-strip">
-                    <span>✉ {{email}}</span>
-                    <span>📱 {{phone}}</span>
+                    <span> {{email}}</span>
+                    <span> {{phone}}</span>
                   </div>
                   <div class="content">
                     <section><h2>About</h2><p>{{summary}}</p></section>
@@ -257,7 +256,7 @@ public class DataSeeder implements CommandLineRunner {
                   <header>
                     <h1>{{name}}</h1>
                     <div class="title-line">{{title}}</div>
-                    <div class="contact">{{email}} · {{phone}}</div>
+                    <div class="contact">{{email}}  {{phone}}</div>
                   </header>
                   <section><h2>Executive Summary</h2><p>{{summary}}</p></section>
                   <section><h2>Professional Experience</h2><p>{{experience}}</p></section>
@@ -284,7 +283,7 @@ public class DataSeeder implements CommandLineRunner {
                 <div class="resume minimalist">
                   <h1>{{name}}</h1>
                   <p class="tagline">{{title}}</p>
-                  <p class="contact">{{email}} · {{phone}}</p>
+                  <p class="contact">{{email}}  {{phone}}</p>
                   <section><h2>Summary</h2><p>{{summary}}</p></section>
                   <section><h2>Experience</h2><p>{{experience}}</p></section>
                   <section><h2>Education</h2><p>{{education}}</p></section>

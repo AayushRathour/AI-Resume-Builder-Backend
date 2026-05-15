@@ -2,6 +2,8 @@ package com.resumeai.jobmatch.dto;
 
 import lombok.*;
 
+/** DTO for structured section data exchange across services. */
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -17,3 +19,6 @@ public class SectionDTO {
     private Integer orderIndex;
     private Boolean isVisible;
 }
+
+
+
